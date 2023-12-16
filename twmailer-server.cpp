@@ -369,7 +369,7 @@ void handleList(int current_socket, std::istringstream& bufferStream)
 
 void handleRead(int current_socket, std::istringstream& bufferStream)
 {
-    // Extract username and message number
+            // Extract username and message number
             std::string username, messageNumberStr;
             std::getline(bufferStream, username);
             std::getline(bufferStream, messageNumberStr);
