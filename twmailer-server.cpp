@@ -16,25 +16,24 @@
 #include <vector>
 #include <dirent.h>
 
-///////////////////////////////////////////////////////////////////////////////
-
 #define BUF 1024
-
-///////////////////////////////////////////////////////////////////////////////
 
 int abortRequested = 0;
 int create_socket = -1;
 int new_socket = -1;
 std::string mailSpoolDir;
 
-///////////////////////////////////////////////////////////////////////////////
-
 void *clientCommunication(void *data);
 void signalHandler(int sig);
 
+// Helper function to send messages to the client
+void sendMessage(int current_socket, const std::string& message);
 
-
-///////////////////////////////////////////////////////////////////////////////
+// Command handlers
+void handleSend(int current_socket, std::istringstream& bufferStream);
+void handleList(int current_socket, std::istringstream& bufferStream);
+void handleRead(int current_socket, std::istringstream& bufferStream);
+void handleDelete(int current_socket, std::istringstream& bufferStream);
 
 int main(int argc, char **argv)
 {
@@ -51,27 +50,21 @@ int main(int argc, char **argv)
     struct sockaddr_in address, cliaddress;
     int reuseValue = 1;
 
-    ////////////////////////////////////////////////////////////////////////////
     // SIGNAL HANDLER
-    // SIGINT (Interrup: ctrl+c)
     if (signal(SIGINT, signalHandler) == SIG_ERR)
     {
         perror("signal can not be registered");
         return EXIT_FAILURE;
     }
 
-    ////////////////////////////////////////////////////////////////////////////
     // CREATE A SOCKET
-    // IPv4, TCP (connection oriented), IP (same as client)
     if ((create_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
     {
-        perror("Socket error"); // errno set by socket()
+        perror("Socket error");
         return EXIT_FAILURE;
     }
 
-    ////////////////////////////////////////////////////////////////////////////
     // SET SOCKET OPTIONS
-    // socket, level, optname, optvalue, optlen
     if (setsockopt(create_socket,
                    SOL_SOCKET,
                    SO_REUSEADDR,
@@ -92,15 +85,12 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    ////////////////////////////////////////////////////////////////////////////
     // INIT ADDRESS
-    // Attention: network byte order => big endian
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
 
-    ////////////////////////////////////////////////////////////////////////////
     // ASSIGN AN ADDRESS WITH PORT TO SOCKET
     if (bind(create_socket, (struct sockaddr *)&address, sizeof(address)) == -1)
     {
@@ -108,9 +98,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    ////////////////////////////////////////////////////////////////////////////
     // ALLOW CONNECTION ESTABLISHING
-    // Socket, Backlog (= count of waiting connections allowed)
     if (listen(create_socket, 5) == -1)
     {
         perror("listen error");
@@ -126,12 +114,8 @@ int main(int argc, char **argv)
 
     while (!abortRequested)
     {
-        /////////////////////////////////////////////////////////////////////////
         printf("Waiting for connections...\n");
 
-        /////////////////////////////////////////////////////////////////////////
-        // ACCEPTS CONNECTION SETUP
-        // blocking, might have an accept-error on ctrl+c
         addrlen = sizeof(struct sockaddr_in);
         if ((new_socket = accept(create_socket,
                                  (struct sockaddr *)&cliaddress,
@@ -148,9 +132,6 @@ int main(int argc, char **argv)
             break;
         }
 
-        /////////////////////////////////////////////////////////////////////////
-        // START CLIENT
-        // ignore printf error handling
         printf("Client connected from %s:%d...\n",
                inet_ntoa(cliaddress.sin_addr),
                ntohs(cliaddress.sin_port));
@@ -158,7 +139,6 @@ int main(int argc, char **argv)
         new_socket = -1;
     }
 
-    // frees the descriptor
     if (create_socket != -1)
     {
         if (shutdown(create_socket, SHUT_RDWR) == -1)
@@ -182,12 +162,8 @@ void *clientCommunication(void *data)
     int *current_socket = (int *)data;
 
     // SEND welcome message
-    const char welcomeMessage[] = "Welcome to myserver!\r\nPlease enter your commands...\r\n";
-    if (send(*current_socket, welcomeMessage, strlen(welcomeMessage), 0) == -1)
-    {
-        perror("send failed");
-        return NULL;
-    }
+    const char welcomeMessage[] = "Welcome to the twmailer!\r\nPlease enter your commands...\r\n";
+    sendMessage(*current_socket, welcomeMessage);
 
     do
     {
@@ -208,7 +184,7 @@ void *clientCommunication(void *data)
 
         if (size == 0)
         {
-            printf("Client closed remote socket\n"); // ignore error
+            printf("Client closed remote socket\n");
             break;
         }
 
@@ -223,32 +199,67 @@ void *clientCommunication(void *data)
         }
 
         buffer[size] = '\0';
-        printf("Message received: \n%s\n", buffer); // ignore error
+        printf("Message received: \n%s\n", buffer);
 
         // Extract the command from the first line
-        std::istringstream commandStream(buffer);
+        std::istringstream bufferStream(buffer);
         std::string command;
-        std::getline(commandStream, command);  // Consume the first line
+        std::getline(bufferStream, command);  // Consume the first line
 
-        // Inside the "SEND" command block
-        if (command == "SEND")
+        // Call the appropriate handler based on the command
+        if (command == "SEND") {
+            handleSend(*current_socket, bufferStream);
+        } else if (command == "LIST") {
+            handleList(*current_socket, bufferStream);
+        } else if (command == "READ") {
+            handleRead(*current_socket, bufferStream);
+        } else if (command == "DEL") {
+            handleDelete(*current_socket, bufferStream);
+        } else if (command == "QUIT") {
+            abortRequested = true;
+        } else {
+            // Respond to the client with a generic message
+            const char Message[] = "ERR";
+            sendMessage(*current_socket, Message);
+        }
+
+    } while (!abortRequested);
+
+    // Close the socket
+    if (*current_socket != -1)
+    {
+        if (shutdown(*current_socket, SHUT_RDWR) == -1)
         {
-            // Extract sender, receiver, subject, and message
+            perror("shutdown new_socket");
+        }
+        if (close(*current_socket) == -1)
+        {
+            perror("close new_socket");
+        }
+        *current_socket = -1;
+    }
+
+    return NULL;
+}
+
+void handleSend(int current_socket, std::istringstream& bufferStream)
+{
+    // Extract sender, receiver, subject, and message
             std::string sender, receiver, subject, message;
 
             // Receive sender
-            std::getline(commandStream, sender);
+            std::getline(bufferStream, sender);
 
             // Receive receiver
-            std::getline(commandStream, receiver);
+            std::getline(bufferStream, receiver);
 
             // Receive subject
-            std::getline(commandStream, subject);
+            std::getline(bufferStream, subject);
 
             // Receive the message until a line contains "."
             message = "";
             std::string line;
-            while (std::getline(commandStream, line) && line != ".") {
+            while (std::getline(bufferStream, line) && line != ".") {
                 // Append each line to the message
                 message += line + "\n";
             }
@@ -273,24 +284,20 @@ void *clientCommunication(void *data)
                 perror("Error writing message to file");
             }
 
-            // Respond to the client
-            const char okMessage[] = "OK";
-            if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
-            {
-                perror("send answer failed");
-                return NULL;
-            }
 
-            // Log the SEND operation
-            std::cout << "SEND operation completed for user " << sender << std::endl;
-        }
+    // Respond to the client
+    const char okMessage[] = "OK";
+    sendMessage(current_socket, okMessage);
 
-        // Inside the "LIST" command block
-        else if (command == "LIST")
-        {
-            // Extract username
+    // Log the SEND operation
+    std::cout << "SEND operation completed for user " << sender << std::endl;
+}
+
+void handleList(int current_socket, std::istringstream& bufferStream)
+{
+    // Extract username
             std::string username;
-            std::getline(commandStream, username);
+            std::getline(bufferStream, username);
             std::cout << "LIST request for user: " << username << std::endl;
 
             // Get the list of messages for the user
@@ -349,21 +356,23 @@ void *clientCommunication(void *data)
             }
 
             const std::string response = responseStream.str();
-            if (send(*current_socket, response.c_str(), response.length(), 0) == -1)
+            if (send(current_socket, response.c_str(), response.length(), 0) == -1)
             {
                 perror("send answer failed");
-                return NULL;
+                return;
             }
 
-            // Log the LIST operation
-            std::cout << "LIST operation completed for user " << username << std::endl;
-        }
-        else if (command == "READ")
-        {
-            // Extract username and message number
+
+    // Log the LIST operation
+    std::cout << "LIST operation completed for user " << username << std::endl;
+}
+
+void handleRead(int current_socket, std::istringstream& bufferStream)
+{
+    // Extract username and message number
             std::string username, messageNumberStr;
-            std::getline(commandStream, username);
-            std::getline(commandStream, messageNumberStr);
+            std::getline(bufferStream, username);
+            std::getline(bufferStream, messageNumberStr);
 
             // Convert message number to integer
             int messageNumber = std::stoi(messageNumberStr);
@@ -380,13 +389,13 @@ void *clientCommunication(void *data)
             {
                 // User directory does not exist
                 const char errorMessage[] = "ERR\n";
-                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
                 }
                 std::cerr << "READ error: User directory does not exist for user " << username << std::endl;
                 closedir(dir);
-                return NULL;
+                return;
             }
             closedir(dir);
 
@@ -408,12 +417,12 @@ void *clientCommunication(void *data)
             {
                 // Invalid message number
                 const char errorMessage[] = "ERR\n";
-                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
                 }
                 std::cerr << "READ error: Invalid message number for user " << username << std::endl;
-                return NULL;
+                return;
             }
 
             // Get the message file corresponding to the requested message number
@@ -425,12 +434,12 @@ void *clientCommunication(void *data)
             {
                 // Error opening the message file
                 const char errorMessage[] = "ERR\n";
-                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
                 }
                 std::cerr << "READ error: Could not open message file for user " << username << std::endl;
-                return NULL;
+                return;
             }
 
             // Read the entire content of the message file
@@ -441,19 +450,20 @@ void *clientCommunication(void *data)
 
             // Send the complete message content to the client without extra newlines
             const std::string messageContent = messageContentStream.str();
-            if (send(*current_socket, messageContent.c_str(), messageContent.length(), 0) == -1)
+            if (send(current_socket, messageContent.c_str(), messageContent.length(), 0) == -1)
             {
                 perror("send answer failed");
             }
 
-            std::cout << "READ request successful for user " << username << ", message number " << messageNumber << std::endl;
-        }
-        else if (command == "DEL")
-        {
-            // Extract username and message number
+    std::cout << "READ request successful for user " << username << ", message number " << messageNumber << std::endl;
+}
+
+void handleDelete(int current_socket, std::istringstream& bufferStream)
+{
+    // Extract username and message number
             std::string username, messageNumberStr;
-            std::getline(commandStream, username);
-            std::getline(commandStream, messageNumberStr);
+            std::getline(bufferStream, username);
+            std::getline(bufferStream, messageNumberStr);
 
             // Convert message number to integer
             int messageNumber = std::stoi(messageNumberStr);
@@ -467,13 +477,13 @@ void *clientCommunication(void *data)
             {
                 // User directory does not exist
                 const char errorMessage[] = "ERR\nUser directory does not exist.";
-                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
+                    return;
                 }
                 closedir(dir);
-                return NULL;
+                return;
             }
             closedir(dir);
 
@@ -495,12 +505,12 @@ void *clientCommunication(void *data)
             {
                 // Invalid message number
                 const char errorMessage[] = "ERR\nInvalid message number.";
-                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
+                    return;
                 }
-                return NULL;
+                return;
             }
 
             // Get the message file corresponding to the requested message number
@@ -511,66 +521,38 @@ void *clientCommunication(void *data)
             {
                 // Error deleting the message file
                 const char errorMessage[] = "ERR\nError deleting message file.";
-                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
+                    return;
                 }
             }
             else
             {
                 // Successfully deleted the message file
                 const char okMessage[] = "OK";
-                if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
+                if (send(current_socket, okMessage, strlen(okMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
+                    return;
                 }
             }
-        }
-        else if (command == "QUIT")
-        {
-            abortRequested = true;
-        }
-        else
-        {
-            // Respond to the client with a generic message
-            const char okMessage[] = "ERR";
-            if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
-            {
-                perror("send answer failed");
-                return NULL;
-            }
-        }
-        
-        
+}
 
-    } while (!abortRequested);
-
-    // Close the socket
-    if (*current_socket != -1)
+void sendMessage(int current_socket, const std::string& message)
+{
+    if (send(current_socket, message.c_str(), message.length(), 0) == -1)
     {
-        if (shutdown(*current_socket, SHUT_RDWR) == -1)
-        {
-            perror("shutdown new_socket");
-        }
-        if (close(*current_socket) == -1)
-        {
-            perror("close new_socket");
-        }
-        *current_socket = -1;
+        perror("send answer failed");
     }
-
-    return NULL;
 }
 
 void signalHandler(int sig)
 {
     if (sig == SIGINT)
     {
-        printf("abort Requested... "); // ignore error
+        printf("abort Requested... ");
         abortRequested = 1;
-        /////////////////////////////////////////////////////////////////////////
 
         if (new_socket != -1)
         {
