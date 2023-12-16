@@ -9,80 +9,122 @@ using namespace std;
 
 class Client {
 public:
-    Client() : create_socket(-1), isQuit(false) {}
+    Client();
 
-    ~Client() {
-        closeConnection();
-    }
+    ~Client();
 
-    void run(const char* serverIp, int serverPort) {
-        if (setupConnection(serverIp, serverPort) == -1) {
-            cerr << "Failed to establish a connection.\n";
-            return;
-        }
-
-        cout << "Connection with server (" << serverIp << ") established.\n";
-
-        receiveData();
-
-        do {
-            cout << ">> ";
-            if (cin.getline(buffer, BUF)) {
-                processInput();
-                sendData();
-                receiveFeedback();
-            }
-        } while (!isQuit);
-    }
+    void run(const char* serverIp, int serverPort);
 
 private:
     int create_socket;
     char buffer[BUF];
     bool isQuit;
 
-    void closeConnection() {
-        if (create_socket != -1) {
-            shutdown(create_socket, SHUT_RDWR);
-            close(create_socket);
-            create_socket = -1;
-        }
+    void closeConnection();
+
+    int setupConnection(const char* serverIp, int serverPort);
+
+    void receiveData();
+
+    void processInput();
+
+    void sendData();
+
+    void receiveFeedback();
+
+    // Command handlers
+    void handleSend();
+
+    void handleList();
+
+    void handleRead();
+
+    void handleDelete();
+};
+
+// Main function
+int main(int argc, char** argv);
+
+// Forward declarations for command handlers
+void handleSend(int current_socket, char* buffer);
+
+void handleList(int current_socket, char* buffer);
+
+void handleRead(int current_socket, char* buffer);
+
+void handleDelete(int current_socket, char* buffer);
+
+// Client class implementation
+
+Client::Client() : create_socket(-1), isQuit(false) {}
+
+Client::~Client() {
+    closeConnection();
+}
+
+void Client::run(const char* serverIp, int serverPort) {
+    if (setupConnection(serverIp, serverPort) == -1) {
+        cerr << "Failed to establish a connection.\n";
+        return;
     }
 
-    int setupConnection(const char* serverIp, int serverPort) {
-        create_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (create_socket == -1) {
-            perror("Socket error");
-            return -1;
+    cout << "Connection with server (" << serverIp << ") established.\n";
+
+    receiveData();
+
+    do {
+        cout << ">> ";
+        if (cin.getline(buffer, BUF)) {
+            processInput();
+            sendData();
+            receiveFeedback();
         }
+    } while (!isQuit);
+}
 
-        sockaddr_in address;
-        memset(&address, 0, sizeof(address));
-        address.sin_family = AF_INET;
-        address.sin_port = htons(serverPort);
-        inet_aton(serverIp, &address.sin_addr);
+void Client::closeConnection() {
+    if (create_socket != -1) {
+        shutdown(create_socket, SHUT_RDWR);
+        close(create_socket);
+        create_socket = -1;
+    }
+}
 
-        if (connect(create_socket, (struct sockaddr*)&address, sizeof(address)) == -1) {
-            perror("Connect error - no server available");
-            closeConnection();
-            return -1;
-        }
-
-        return 0;
+int Client::setupConnection(const char* serverIp, int serverPort) {
+    create_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (create_socket == -1) {
+        perror("Socket error");
+        return -1;
     }
 
-    void receiveData() {
-        int size = recv(create_socket, buffer, BUF - 1, 0);
-        if (size == -1) {
-            perror("recv error");
-        } else if (size == 0) {
-            cout << "Server closed remote socket.\n";
-        } else {
-            buffer[size] = '\0';
-            cout << buffer;
-        }
+    sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(serverPort);
+    inet_aton(serverIp, &address.sin_addr);
+
+    if (connect(create_socket, (struct sockaddr*)&address, sizeof(address)) == -1) {
+        perror("Connect error - no server available");
+        closeConnection();
+        return -1;
     }
 
-    void processInput() {
+    return 0;
+}
+
+void Client::receiveData() {
+    int size = recv(create_socket, buffer, BUF - 1, 0);
+    if (size == -1) {
+        perror("recv error");
+    } else if (size == 0) {
+        cout << "Server closed remote socket.\n";
+    } else {
+        buffer[size] = '\0';
+        cout << buffer;
+    }
+}
+
+void Client::processInput() {
     int size = strlen(buffer);
     if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n') {
         size -= 2;
@@ -94,132 +136,152 @@ private:
     isQuit = strcmp(buffer, "quit") == 0;
 
     if (strncmp(buffer, "SEND", 4) == 0) {
-        
-        // Handle the SEND command
-
-        string fullMessage = "SEND\n";
-
-        cout << "Sender: ";
-        cin.getline(buffer, BUF);
-        fullMessage += buffer;
-        fullMessage += "\n";
-
-        cout << "Receiver: ";
-        cin.getline(buffer, BUF);
-        fullMessage += buffer;
-        fullMessage += "\n";
-
-        cout << "Subject (max. 80 chars): ";
-        while (true)
-        {
-            cin.getline(buffer, BUF);
-
-            // Validate subject length
-            if (strlen(buffer) <= 80)
-            {
-                fullMessage += buffer;
-                fullMessage += "\n";
-                break;  // Exit the loop if the subject is valid
-            }
-            else
-            {
-                cerr << "Error: Subject exceeds maximum length (80 characters).\n";
-                cout << "Subject (max. 80 chars): ";
-            }
-        }
-
-        cout << "Message (type \".\" on a line by itself to end):\n";
-        while (true) {
-            cin.getline(buffer, BUF);
-            if (strcmp(buffer, ".") == 0) {
-                break;
-            }
-            fullMessage += buffer;
-            fullMessage += "\n";
-        }
-
-        // Send the entire message to the server
-        strncpy(buffer, fullMessage.c_str(), BUF);
+        handleSend();
+    } else if (strncmp(buffer, "LIST", 4) == 0) {
+        handleList();
+    } else if (strncmp(buffer, "READ", 4) == 0) {
+        handleRead();
+    } else if (strncmp(buffer, "DEL", 3) == 0) {
+        handleDelete();
     }
-    else if (strncmp(buffer, "LIST", 4) == 0) {
-        // Handle the LIST command
-        string fullMessage = "LIST\n";
-
-            cout << "Username: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
-
-        // Send the LIST command to the server
-        strncpy(buffer, fullMessage.c_str(), BUF);
-    }
-    else if (strncmp(buffer, "READ", 4) == 0) {
-        // Handle the Read command
-        string fullMessage = "READ\n";
-
-            cout << "Username: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
-            
-            cout << "Message-Number: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
-        // Send the LIST command to the server
-        strncpy(buffer, fullMessage.c_str(), BUF);
-    }
-    else if (strncmp(buffer, "DEL", 4) == 0) {
-        // Handle the Read command
-        string fullMessage = "DEL\n";
-
-            cout << "Username: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
-            
-            cout << "Message-Number: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
-        // Send the DEL command to the server
-        strncpy(buffer, fullMessage.c_str(), BUF);
-    }
-    
 }
 
-
-    void sendData() {
-        if (send(create_socket, buffer, strlen(buffer), 0) == -1) {
-            perror("send error");
-            closeConnection();
-            isQuit = true;
-        }
+void Client::sendData() {
+    if (send(create_socket, buffer, strlen(buffer), 0) == -1) {
+        perror("send error");
+        closeConnection();
+        isQuit = true;
     }
+}
 
-    void receiveFeedback() {
-        int size = recv(create_socket, buffer, BUF - 1, 0);
-        if (size == -1) {
-            perror("recv error");
-            isQuit = true;
-        } else if (size == 0) {
-            cout << "Server closed remote socket.\n";
-            isQuit = true;
-        } else {
-            buffer[size] = '\0';
-            cout << "<< " << buffer << '\n';
-            // if (strcmp("OK", buffer) != 0 && strcmp("TEST", buffer) != 0) {
-            //     cerr << "<< Server error occurred, abort.\n";
-            //     isQuit = true;
-            // }
-            
-            if (strncmp("Error", buffer, 5) == 0) {
+void Client::receiveFeedback() {
+    int size = recv(create_socket, buffer, BUF - 1, 0);
+    if (size == -1) {
+        perror("recv error");
+        isQuit = true;
+    } else if (size == 0) {
+        cout << "Server closed remote socket.\n";
+        isQuit = true;
+    } else {
+        buffer[size] = '\0';
+        cout << "<< " << buffer << '\n';
+
+        if (strncmp("Error", buffer, 5) == 0) {
             cerr << "<< Server error occurred: " << buffer << '\n';
             isQuit = true;
-            }
         }
     }
-};
+}
+
+// Command handlers
+
+void Client::handleSend() {
+    string fullMessage = "SEND\n";
+
+    cout << "Sender: ";
+    cin.getline(buffer, BUF);
+    fullMessage += buffer;
+    fullMessage += "\n";
+
+    cout << "Receiver: ";
+    cin.getline(buffer, BUF);
+    fullMessage += buffer;
+    fullMessage += "\n";
+
+    cout << "Subject (max. 80 chars): ";
+    while (true) {
+        cin.getline(buffer, BUF);
+
+        // Validate subject length
+        if (strlen(buffer) <= 80) {
+            fullMessage += buffer;
+            fullMessage += "\n";
+            break;  // Exit the loop if the subject is valid
+        } else {
+            cerr << "Error: Subject exceeds maximum length (80 characters).\n";
+            cout << "Subject (max. 80 chars): ";
+        }
+    }
+
+    cout << "Message (type \".\" on a line by itself to end):\n";
+    while (true) {
+        cin.getline(buffer, BUF);
+        if (strcmp(buffer, ".") == 0) {
+            break;
+        }
+        fullMessage += buffer;
+        fullMessage += "\n";
+    }
+
+    // Send the entire message to the server
+    strncpy(buffer, fullMessage.c_str(), BUF);
+}
+
+void Client::handleList() {
+    string fullMessage = "LIST\n";
+
+    cout << "Username: ";
+    cin.getline(buffer, BUF);
+    fullMessage += buffer;
+    fullMessage += "\n";
+
+    // Send the LIST command to the server
+    strncpy(buffer, fullMessage.c_str(), BUF);
+}
+
+void Client::handleRead() {
+    string fullMessage = "READ\n";
+
+    cout << "Username: ";
+    cin.getline(buffer, BUF);
+    fullMessage += buffer;
+    fullMessage += "\n";
+
+    do {
+        cout << "Message-Number: ";
+        cin.getline(buffer, BUF);
+
+        // Check if the entered message number is valid (greater than 0)
+        if (atoi(buffer) > 0) {
+            fullMessage += buffer;
+            fullMessage += "\n";
+            break;  
+        } else {
+            cerr << "Error: Message number must be greater than 0.\n";
+        }
+    } while (true);
+
+    // Send the READ command to the server
+    strncpy(buffer, fullMessage.c_str(), BUF);
+}
+
+void Client::handleDelete() {
+    string fullMessage = "DEL\n";
+
+    cout << "Username: ";
+    cin.getline(buffer, BUF);
+    fullMessage += buffer;
+    fullMessage += "\n";
+
+    do {
+        cout << "Message-Number: ";
+        cin.getline(buffer, BUF);
+
+        // Check if the entered message number is valid (greater than 0)
+        if (atoi(buffer) > 0) {
+            fullMessage += buffer;
+            fullMessage += "\n";
+            break;  
+        } else {
+            cerr << "Error: Message number must be greater than 0.\n";
+        }
+    } while (true);
+
+    // Send the DEL command to the server
+    strncpy(buffer, fullMessage.c_str(), BUF);
+}
+
+// Main function
 
 int main(int argc, char** argv) {
     if (argc != 3) {

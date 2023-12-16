@@ -15,6 +15,7 @@ public:
         closeConnection();
     }
 
+    
     void run(const char* serverIp, int serverPort) {
         if (setupConnection(serverIp, serverPort) == -1) {
             cerr << "Failed to establish a connection.\n";
@@ -162,10 +163,19 @@ private:
             fullMessage += buffer;
             fullMessage += "\n";
             
-            cout << "Message-Number: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
+            do {
+                cout << "Message-Number: ";
+                cin.getline(buffer, BUF);
+
+                // Check if the entered message number is valid (greater than 0)
+                if (atoi(buffer) > 0) {
+                    fullMessage += buffer;
+                    fullMessage += "\n";
+                    break;  
+                } else {
+                    cerr << "Error: Message number must be greater than 0.\n";
+                }
+            } while (true);
         // Send the LIST command to the server
         strncpy(buffer, fullMessage.c_str(), BUF);
     }
@@ -178,16 +188,25 @@ private:
             fullMessage += buffer;
             fullMessage += "\n";
             
-            cout << "Message-Number: ";
-            cin.getline(buffer, BUF);
-            fullMessage += buffer;
-            fullMessage += "\n";
+            do {
+                cout << "Message-Number: ";
+                cin.getline(buffer, BUF);
+
+                // Check if the entered message number is valid (greater than 0)
+                if (atoi(buffer) > 0) {
+                    fullMessage += buffer;
+                    fullMessage += "\n";
+                    break;  
+                } else {
+                    cerr << "Error: Message number must be greater than 0.\n";
+                }
+            } while (true);
+
         // Send the DEL command to the server
         strncpy(buffer, fullMessage.c_str(), BUF);
     }
     
 }
-
 
     void sendData() {
         if (send(create_socket, buffer, strlen(buffer), 0) == -1) {
