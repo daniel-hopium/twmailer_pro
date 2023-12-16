@@ -52,7 +52,6 @@ int main(int argc, char **argv)
     ////////////////////////////////////////////////////////////////////////////
     // SIGNAL HANDLER
     // SIGINT (Interrup: ctrl+c)
-    // https://man7.org/linux/man-pages/man2/signal.2.html
     if (signal(SIGINT, signalHandler) == SIG_ERR)
     {
         perror("signal can not be registered");
@@ -61,9 +60,6 @@ int main(int argc, char **argv)
 
     ////////////////////////////////////////////////////////////////////////////
     // CREATE A SOCKET
-    // https://man7.org/linux/man-pages/man2/socket.2.html
-    // https://man7.org/linux/man-pages/man7/ip.7.html
-    // https://man7.org/linux/man-pages/man7/tcp.7.html
     // IPv4, TCP (connection oriented), IP (same as client)
     if ((create_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
     {
@@ -73,8 +69,6 @@ int main(int argc, char **argv)
 
     ////////////////////////////////////////////////////////////////////////////
     // SET SOCKET OPTIONS
-    // https://man7.org/linux/man-pages/man2/setsockopt.2.html
-    // https://man7.org/linux/man-pages/man7/socket.7.html
     // socket, level, optname, optvalue, optlen
     if (setsockopt(create_socket,
                    SOL_SOCKET,
@@ -131,8 +125,6 @@ int main(int argc, char **argv)
     while (!abortRequested)
     {
         /////////////////////////////////////////////////////////////////////////
-        // ignore errors here... because only information message
-        // https://linux.die.net/man/3/printf
         printf("Waiting for connections...\n");
 
         /////////////////////////////////////////////////////////////////////////
@@ -258,12 +250,6 @@ void *clientCommunication(void *data)
                 // Append each line to the message
                 message += line + "\n";
             }
-
-            // Now, sender, receiver, subject, and message are set
-            std::cout << "Sender: " << sender << std::endl;
-            std::cout << "Receiver: " << receiver << std::endl;
-            std::cout << "Subject: " << subject << std::endl;
-            std::cout << "Message:\n" << message;
 
             // Save the message in the sender's directory
             std::string senderDir = mailSpoolDir + "/" + sender;
@@ -460,22 +446,104 @@ void *clientCommunication(void *data)
 
             std::cout << "READ request successful for user " << username << ", message number " << messageNumber << std::endl;
         }
+        else if (command == "DEL")
+        {
+            // Extract username and message number
+            std::string username, messageNumberStr;
+            std::getline(commandStream, username);
+            std::getline(commandStream, messageNumberStr);
 
+            // Convert message number to integer
+            int messageNumber = std::stoi(messageNumberStr);
 
+            // Get the user's directory
+            std::string userDir = mailSpoolDir + "/" + username;
 
+            // Check if the user directory exists
+            DIR *dir = opendir(userDir.c_str());
+            if (dir == NULL)
+            {
+                // User directory does not exist
+                const char errorMessage[] = "ERR\nUser directory does not exist.";
+                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+                closedir(dir);
+                return NULL;
+            }
+            closedir(dir);
+
+            // Get the list of message files
+            std::vector<std::string> messageFiles;
+            dir = opendir(userDir.c_str());
+            struct dirent *ent;
+            while ((ent = readdir(dir)) != NULL)
+            {
+                if (ent->d_type == DT_REG)
+                {
+                    messageFiles.push_back(ent->d_name);
+                }
+            }
+            closedir(dir);
+
+            // Check if the requested message number is valid
+            if (messageNumber <= 0 || messageNumber > static_cast<int>(messageFiles.size()))
+            {
+                // Invalid message number
+                const char errorMessage[] = "ERR\nInvalid message number.";
+                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+                return NULL;
+            }
+
+            // Get the message file corresponding to the requested message number
+            std::string messageFile = userDir + "/" + messageFiles[messageNumber - 1];
+
+            // Delete the message file
+            if (remove(messageFile.c_str()) != 0)
+            {
+                // Error deleting the message file
+                const char errorMessage[] = "ERR\nError deleting message file.";
+                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+            }
+            else
+            {
+                // Successfully deleted the message file
+                const char okMessage[] = "OK";
+                if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+            }
+        }
+        else if (command == "QUIT")
+        {
+            abortRequested = true;
+        }
         else
         {
             // Respond to the client with a generic message
-            const char okMessage[] = "TEST";
+            const char okMessage[] = "ERR";
             if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
             {
                 perror("send answer failed");
                 return NULL;
             }
         }
-        // Add other command processing logic (LIST, READ, DEL, QUIT) here
+        
+        
 
-    } while (strcmp(buffer, "QUIT") != 0 && !abortRequested);
+    } while (!abortRequested);
 
     // Close the socket
     if (*current_socket != -1)
@@ -501,10 +569,7 @@ void signalHandler(int sig)
         printf("abort Requested... "); // ignore error
         abortRequested = 1;
         /////////////////////////////////////////////////////////////////////////
-        // With shutdown() one can initiate normal TCP close sequence ignoring
-        // the reference count.
-        // https://beej.us/guide/bgnet/html/#close-and-shutdownget-outta-my-face
-        // https://linux.die.net/man/3/shutdown
+
         if (new_socket != -1)
         {
             if (shutdown(new_socket, SHUT_RDWR) == -1)

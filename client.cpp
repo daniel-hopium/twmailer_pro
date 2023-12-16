@@ -110,9 +110,23 @@ private:
         fullMessage += "\n";
 
         cout << "Subject (max. 80 chars): ";
-        cin.getline(buffer, BUF);
-        fullMessage += buffer;
-        fullMessage += "\n";
+        while (true)
+        {
+            cin.getline(buffer, BUF);
+
+            // Validate subject length
+            if (strlen(buffer) <= 80)
+            {
+                fullMessage += buffer;
+                fullMessage += "\n";
+                break;  // Exit the loop if the subject is valid
+            }
+            else
+            {
+                cerr << "Error: Subject exceeds maximum length (80 characters).\n";
+                cout << "Subject (max. 80 chars): ";
+            }
+        }
 
         cout << "Message (type \".\" on a line by itself to end):\n";
         while (true) {
@@ -153,6 +167,22 @@ private:
             fullMessage += buffer;
             fullMessage += "\n";
         // Send the LIST command to the server
+        strncpy(buffer, fullMessage.c_str(), BUF);
+    }
+    else if (strncmp(buffer, "DEL", 4) == 0) {
+        // Handle the Read command
+        string fullMessage = "DEL\n";
+
+            cout << "Username: ";
+            cin.getline(buffer, BUF);
+            fullMessage += buffer;
+            fullMessage += "\n";
+            
+            cout << "Message-Number: ";
+            cin.getline(buffer, BUF);
+            fullMessage += buffer;
+            fullMessage += "\n";
+        // Send the DEL command to the server
         strncpy(buffer, fullMessage.c_str(), BUF);
     }
     
