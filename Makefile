@@ -1,13 +1,13 @@
 CC = g++
 CFLAGS = -Wall -Wextra -std=c++11
 
-all: twmailer-client twmailer-server
+all: client server
 
-twmailer-client: twmailer-client.cpp
-	$(CC) $(CFLAGS) -o twmailer-client twmailer-client.cpp
+client: client.cpp
+	$(CC) $(CFLAGS) -o $@ $<
 
-twmailer-server: twmailer-server.cpp
-	$(CC) $(CFLAGS) -o twmailer-server twmailer-server.cpp
+server: server.cpp
+	$(CC) $(CFLAGS) -o $@ $<
 
 clean:
-	rm -f twmailer-client twmailer-server
+	rm -f client server
