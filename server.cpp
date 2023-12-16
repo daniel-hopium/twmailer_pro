@@ -236,6 +236,7 @@ void *clientCommunication(void *data)
         std::string command;
         std::getline(commandStream, command);  // Consume the first line
 
+        // Inside the "SEND" command block
         if (command == "SEND")
         {
             // Extract sender, receiver, subject, and message
@@ -263,7 +264,7 @@ void *clientCommunication(void *data)
             std::cout << "Receiver: " << receiver << std::endl;
             std::cout << "Subject: " << subject << std::endl;
             std::cout << "Message:\n" << message;
-    
+
             // Save the message in the sender's directory
             std::string senderDir = mailSpoolDir + "/" + sender;
             mkdir(senderDir.c_str(), 0777);
@@ -291,12 +292,18 @@ void *clientCommunication(void *data)
                 perror("send answer failed");
                 return NULL;
             }
+
+            // Log the SEND operation
+            std::cout << "SEND operation completed for user " << sender << std::endl;
         }
+
+        // Inside the "LIST" command block
         else if (command == "LIST")
         {
             // Extract username
             std::string username;
             std::getline(commandStream, username);
+            std::cout << "LIST request for user: " << username << std::endl;
 
             // Get the list of messages for the user
             std::string userDir = mailSpoolDir + "/" + username;
@@ -359,6 +366,9 @@ void *clientCommunication(void *data)
                 perror("send answer failed");
                 return NULL;
             }
+
+            // Log the LIST operation
+            std::cout << "LIST operation completed for user " << username << std::endl;
         }
         else if (command == "READ")
         {
@@ -373,17 +383,20 @@ void *clientCommunication(void *data)
             // Get the user's directory
             std::string userDir = mailSpoolDir + "/" + username;
 
+            // Log the request
+            std::cout << "READ request for user: " << username << ", message number: " << messageNumber << std::endl;
+
             // Check if the user directory exists
             DIR *dir = opendir(userDir.c_str());
             if (dir == NULL)
             {
                 // User directory does not exist
-                const char errorMessage[] = "Error: User directory does not exist.";
+                const char errorMessage[] = "ERR\n";
                 if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
                 }
+                std::cerr << "READ error: User directory does not exist for user " << username << std::endl;
                 closedir(dir);
                 return NULL;
             }
@@ -406,12 +419,12 @@ void *clientCommunication(void *data)
             if (messageNumber <= 0 || messageNumber > static_cast<int>(messageFiles.size()))
             {
                 // Invalid message number
-                const char errorMessage[] = "Error: Invalid message number.";
+                const char errorMessage[] = "ERR\n";
                 if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
                 }
+                std::cerr << "READ error: Invalid message number for user " << username << std::endl;
                 return NULL;
             }
 
@@ -423,12 +436,12 @@ void *clientCommunication(void *data)
             if (!messageFileStream.is_open())
             {
                 // Error opening the message file
-                const char errorMessage[] = "Error: Could not open message file.";
+                const char errorMessage[] = "ERR\n";
                 if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
                 {
                     perror("send answer failed");
-                    return NULL;
                 }
+                std::cerr << "READ error: Could not open message file for user " << username << std::endl;
                 return NULL;
             }
 
@@ -438,14 +451,18 @@ void *clientCommunication(void *data)
             messageContentStream << messageFileStream.rdbuf();
             messageFileStream.close();
 
-            // Send the complete message content to the client
+            // Send the complete message content to the client without extra newlines
             const std::string messageContent = messageContentStream.str();
             if (send(*current_socket, messageContent.c_str(), messageContent.length(), 0) == -1)
             {
                 perror("send answer failed");
-                return NULL;
             }
+
+            std::cout << "READ request successful for user " << username << ", message number " << messageNumber << std::endl;
         }
+
+
+
         else
         {
             // Respond to the client with a generic message
