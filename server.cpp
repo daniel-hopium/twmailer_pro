@@ -14,6 +14,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <dirent.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -182,15 +183,13 @@ int main(int argc, char **argv)
 
 void *clientCommunication(void *data)
 {
-    
     char buffer[BUF];
     int size;
     int *current_socket = (int *)data;
 
-    ////////////////////////////////////////////////////////////////////////////
     // SEND welcome message
-    strcpy(buffer, "Welcome to myserver!\r\nPlease enter your commands...\r\n");
-    if (send(*current_socket, buffer, strlen(buffer), 0) == -1)
+    const char welcomeMessage[] = "Welcome to myserver!\r\nPlease enter your commands...\r\n";
+    if (send(*current_socket, welcomeMessage, strlen(welcomeMessage), 0) == -1)
     {
         perror("send failed");
         return NULL;
@@ -198,7 +197,6 @@ void *clientCommunication(void *data)
 
     do
     {
-        /////////////////////////////////////////////////////////////////////////
         // RECEIVE
         size = recv(*current_socket, buffer, BUF - 1, 0);
         if (size == -1)
@@ -219,7 +217,8 @@ void *clientCommunication(void *data)
             printf("Client closed remote socket\n"); // ignore error
             break;
         }
-        // remove ugly debug message, because of the sent newline of client
+
+        // Remove newline characters from the received message
         if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n')
         {
             size -= 2;
@@ -230,51 +229,218 @@ void *clientCommunication(void *data)
         }
 
         buffer[size] = '\0';
-        printf("Message received: %s\n", buffer); // ignore error
-        std::cout << "TEST MESSAGE S\n";
-        // Process the command
+        printf("Message received: \n%s\n", buffer); // ignore error
+
+        // Extract the command from the first line
         std::istringstream commandStream(buffer);
         std::string command;
-        commandStream >> command;
-
-        std::cout << "COMMAND: " << command ;
+        std::getline(commandStream, command);  // Consume the first line
 
         if (command == "SEND")
         {
-            std::cout << "TEST SEND";
             // Extract sender, receiver, subject, and message
             std::string sender, receiver, subject, message;
-            commandStream >> sender >> receiver >> subject;
 
-            // Read the message until the end marker
-            while (true)
-            {
-                std::string line;
-                std::getline(commandStream, line);
-                if (line == ".")
-                    break;
-                message += line + '\n';
+            // Receive sender
+            std::getline(commandStream, sender);
+
+            // Receive receiver
+            std::getline(commandStream, receiver);
+
+            // Receive subject
+            std::getline(commandStream, subject);
+
+            // Receive the message until a line contains "."
+            message = "";
+            std::string line;
+            while (std::getline(commandStream, line) && line != ".") {
+                // Append each line to the message
+                message += line + "\n";
             }
 
-            // Save the message in the receiver's inbox directory
-            std::string inboxDir = mailSpoolDir + "/" + receiver;
-            mkdir(inboxDir.c_str(), 0777);
+            // Now, sender, receiver, subject, and message are set
+            std::cout << "Sender: " << sender << std::endl;
+            std::cout << "Receiver: " << receiver << std::endl;
+            std::cout << "Subject: " << subject << std::endl;
+            std::cout << "Message:\n" << message;
+    
+            // Save the message in the sender's directory
+            std::string senderDir = mailSpoolDir + "/" + sender;
+            mkdir(senderDir.c_str(), 0777);
 
-            // Append the message to the user's inbox file
-            std::string inboxFile = inboxDir + "/inbox.txt";
-            std::ofstream outfile(inboxFile, std::ios::app);
+            // Generate a unique filename for each received message using a timestamp
+            std::string timestamp = std::to_string(time(nullptr));
+            std::string fileName = senderDir + "/message_" + timestamp + ".txt";
+
+            // Write the message to the file
+            std::ofstream outfile(fileName);
             if (outfile.is_open())
             {
-                outfile << "Sender: " << sender << "\nSubject: " << subject << "\n" << message << "\n\n";
+                outfile << "Sender: " << sender << "\nSubject: " << subject << "\n" << message;
                 outfile.close();
             }
             else
             {
-                perror("Error appending message to inbox");
+                perror("Error writing message to file");
             }
 
             // Respond to the client
-            if (send(*current_socket, "OK, DID NOTHING", 3, 0) == -1)
+            const char okMessage[] = "OK";
+            if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
+            {
+                perror("send answer failed");
+                return NULL;
+            }
+        }
+        else if (command == "LIST")
+        {
+            // Extract username
+            std::string username;
+            std::getline(commandStream, username);
+
+            // Get the list of messages for the user
+            std::string userDir = mailSpoolDir + "/" + username;
+            DIR *dir;
+            struct dirent *ent;
+            int messageCount = 0;
+
+            if ((dir = opendir(userDir.c_str())) != NULL)
+            {
+                // Count the number of messages
+                while ((ent = readdir(dir)) != NULL)
+                {
+                    if (ent->d_type == DT_REG)
+                    {
+                        ++messageCount;
+                    }
+                }
+                closedir(dir);
+            }
+            else
+            {
+                perror("Error opening user directory");
+            }
+
+            // Respond to the client with the message count and subjects
+            std::ostringstream responseStream;
+            responseStream << messageCount << "\n";
+
+            if (messageCount > 0)
+            {
+                // Get the list of message subjects
+                dir = opendir(userDir.c_str());
+                if (dir != NULL)
+                {
+                    while ((ent = readdir(dir)) != NULL)
+                    {
+                        if (ent->d_type == DT_REG)
+                        {
+                            // Read the subject from the second line of the message file
+                            std::ifstream messageFile(userDir + "/" + ent->d_name);
+                            std::string subject;
+                            std::getline(messageFile, subject); // Read the first line (empty line)
+                            std::getline(messageFile, subject); // Read the second line (subject)
+                            messageFile.close();
+
+                            responseStream << subject << "\n";
+                        }
+                    }
+                    closedir(dir);
+                }
+                else
+                {
+                    perror("Error opening user directory");
+                }
+            }
+
+            const std::string response = responseStream.str();
+            if (send(*current_socket, response.c_str(), response.length(), 0) == -1)
+            {
+                perror("send answer failed");
+                return NULL;
+            }
+        }
+        else if (command == "READ")
+        {
+            // Extract username and message number
+            std::string username, messageNumberStr;
+            std::getline(commandStream, username);
+            std::getline(commandStream, messageNumberStr);
+
+            // Convert message number to integer
+            int messageNumber = std::stoi(messageNumberStr);
+
+            // Get the user's directory
+            std::string userDir = mailSpoolDir + "/" + username;
+
+            // Check if the user directory exists
+            DIR *dir = opendir(userDir.c_str());
+            if (dir == NULL)
+            {
+                // User directory does not exist
+                const char errorMessage[] = "Error: User directory does not exist.";
+                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+                closedir(dir);
+                return NULL;
+            }
+            closedir(dir);
+
+            // Get the list of message files
+            std::vector<std::string> messageFiles;
+            dir = opendir(userDir.c_str());
+            struct dirent *ent;
+            while ((ent = readdir(dir)) != NULL)
+            {
+                if (ent->d_type == DT_REG)
+                {
+                    messageFiles.push_back(ent->d_name);
+                }
+            }
+            closedir(dir);
+
+            // Check if the requested message number is valid
+            if (messageNumber <= 0 || messageNumber > static_cast<int>(messageFiles.size()))
+            {
+                // Invalid message number
+                const char errorMessage[] = "Error: Invalid message number.";
+                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+                return NULL;
+            }
+
+            // Get the message file corresponding to the requested message number
+            std::string messageFile = userDir + "/" + messageFiles[messageNumber - 1];
+
+            // Read the content of the message file
+            std::ifstream messageFileStream(messageFile);
+            if (!messageFileStream.is_open())
+            {
+                // Error opening the message file
+                const char errorMessage[] = "Error: Could not open message file.";
+                if (send(*current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+                {
+                    perror("send answer failed");
+                    return NULL;
+                }
+                return NULL;
+            }
+
+            // Read the entire content of the message file
+            std::ostringstream messageContentStream;
+            messageContentStream << "OK\n";
+            messageContentStream << messageFileStream.rdbuf();
+            messageFileStream.close();
+
+            // Send the complete message content to the client
+            const std::string messageContent = messageContentStream.str();
+            if (send(*current_socket, messageContent.c_str(), messageContent.length(), 0) == -1)
             {
                 perror("send answer failed");
                 return NULL;
@@ -282,7 +448,9 @@ void *clientCommunication(void *data)
         }
         else
         {
-            if (send(*current_socket, "OK", 3, 0) == -1)
+            // Respond to the client with a generic message
+            const char okMessage[] = "TEST";
+            if (send(*current_socket, okMessage, strlen(okMessage), 0) == -1)
             {
                 perror("send answer failed");
                 return NULL;
@@ -292,7 +460,7 @@ void *clientCommunication(void *data)
 
     } while (strcmp(buffer, "QUIT") != 0 && !abortRequested);
 
-    // closes/frees the descriptor if not already
+    // Close the socket
     if (*current_socket != -1)
     {
         if (shutdown(*current_socket, SHUT_RDWR) == -1)

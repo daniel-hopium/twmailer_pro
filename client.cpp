@@ -83,16 +83,81 @@ private:
     }
 
     void processInput() {
-        int size = strlen(buffer);
-        if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n') {
-            size -= 2;
-            buffer[size] = 0;
-        } else if (buffer[size - 1] == '\n') {
-            --size;
-            buffer[size] = 0;
-        }
-        isQuit = strcmp(buffer, "quit") == 0;
+    int size = strlen(buffer);
+    if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n') {
+        size -= 2;
+        buffer[size] = 0;
+    } else if (buffer[size - 1] == '\n') {
+        --size;
+        buffer[size] = 0;
     }
+    isQuit = strcmp(buffer, "quit") == 0;
+
+    if (strncmp(buffer, "SEND", 4) == 0) {
+        
+        // Handle the SEND command
+
+        string fullMessage = "SEND\n";
+
+        cout << "Sender: ";
+        cin.getline(buffer, BUF);
+        fullMessage += buffer;
+        fullMessage += "\n";
+
+        cout << "Receiver: ";
+        cin.getline(buffer, BUF);
+        fullMessage += buffer;
+        fullMessage += "\n";
+
+        cout << "Subject (max. 80 chars): ";
+        cin.getline(buffer, BUF);
+        fullMessage += buffer;
+        fullMessage += "\n";
+
+        cout << "Message (type \".\" on a line by itself to end):\n";
+        while (true) {
+            cin.getline(buffer, BUF);
+            if (strcmp(buffer, ".") == 0) {
+                break;
+            }
+            fullMessage += buffer;
+            fullMessage += "\n";
+        }
+
+        // Send the entire message to the server
+        strncpy(buffer, fullMessage.c_str(), BUF);
+    }
+    else if (strncmp(buffer, "LIST", 4) == 0) {
+        // Handle the LIST command
+        string fullMessage = "LIST\n";
+
+            cout << "Username: ";
+            cin.getline(buffer, BUF);
+            fullMessage += buffer;
+            fullMessage += "\n";
+
+        // Send the LIST command to the server
+        strncpy(buffer, fullMessage.c_str(), BUF);
+    }
+    else if (strncmp(buffer, "READ", 4) == 0) {
+        // Handle the Read command
+        string fullMessage = "READ\n";
+
+            cout << "Username: ";
+            cin.getline(buffer, BUF);
+            fullMessage += buffer;
+            fullMessage += "\n";
+            
+            cout << "Message-Number: ";
+            cin.getline(buffer, BUF);
+            fullMessage += buffer;
+            fullMessage += "\n";
+        // Send the LIST command to the server
+        strncpy(buffer, fullMessage.c_str(), BUF);
+    }
+    
+}
+
 
     void sendData() {
         if (send(create_socket, buffer, strlen(buffer), 0) == -1) {
@@ -113,9 +178,14 @@ private:
         } else {
             buffer[size] = '\0';
             cout << "<< " << buffer << '\n';
-            if (strcmp("OK", buffer) != 0) {
-                cerr << "<< Server error occurred, abort.\n";
-                isQuit = true;
+            // if (strcmp("OK", buffer) != 0 && strcmp("TEST", buffer) != 0) {
+            //     cerr << "<< Server error occurred, abort.\n";
+            //     isQuit = true;
+            // }
+            
+            if (strncmp("Error", buffer, 5) == 0) {
+            cerr << "<< Server error occurred: " << buffer << '\n';
+            isQuit = true;
             }
         }
     }
