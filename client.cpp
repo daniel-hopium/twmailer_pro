@@ -7,11 +7,11 @@
 
 using namespace std;
 
-class TCPClient {
+class Client {
 public:
-    TCPClient() : create_socket(-1), isQuit(false) {}
+    Client() : create_socket(-1), isQuit(false) {}
 
-    ~TCPClient() {
+    ~Client() {
         closeConnection();
     }
 
@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
     const char* serverIp = argv[1];
     int serverPort = std::atoi(argv[2]);
 
-    TCPClient client;
+    Client client;
     client.run(serverIp, serverPort);
 
     return 0;

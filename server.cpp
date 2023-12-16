@@ -182,6 +182,7 @@ int main(int argc, char **argv)
 
 void *clientCommunication(void *data)
 {
+    
     char buffer[BUF];
     int size;
     int *current_socket = (int *)data;
@@ -218,7 +219,6 @@ void *clientCommunication(void *data)
             printf("Client closed remote socket\n"); // ignore error
             break;
         }
-
         // remove ugly debug message, because of the sent newline of client
         if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n')
         {
@@ -231,14 +231,17 @@ void *clientCommunication(void *data)
 
         buffer[size] = '\0';
         printf("Message received: %s\n", buffer); // ignore error
-
+        std::cout << "TEST MESSAGE S\n";
         // Process the command
         std::istringstream commandStream(buffer);
         std::string command;
         commandStream >> command;
 
+        std::cout << "COMMAND: " << command ;
+
         if (command == "SEND")
         {
+            std::cout << "TEST SEND";
             // Extract sender, receiver, subject, and message
             std::string sender, receiver, subject, message;
             commandStream >> sender >> receiver >> subject;
@@ -271,6 +274,14 @@ void *clientCommunication(void *data)
             }
 
             // Respond to the client
+            if (send(*current_socket, "OK, DID NOTHING", 3, 0) == -1)
+            {
+                perror("send answer failed");
+                return NULL;
+            }
+        }
+        else
+        {
             if (send(*current_socket, "OK", 3, 0) == -1)
             {
                 perror("send answer failed");
