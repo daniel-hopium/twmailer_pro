@@ -4,7 +4,7 @@
 #include <ldap.h>
 #include <iostream>
 
-int main(int argc, char *argv[])
+int main()
 {
   ////////////////////////////////////////////////////////////////////////////
   // LDAP config
