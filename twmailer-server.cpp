@@ -264,13 +264,13 @@ void handleSend(int current_socket, std::istringstream& bufferStream)
                 message += line + "\n";
             }
 
-            // Save the message in the sender's directory
-            std::string senderDir = mailSpoolDir + "/" + sender;
-            mkdir(senderDir.c_str(), 0777);
+            // Save the message in the receiver's directory
+            std::string receiverDir = mailSpoolDir + "/" + receiver;
+            mkdir(receiverDir.c_str(), 0777);
 
             // Generate a unique filename for each received message using a timestamp
             std::string timestamp = std::to_string(time(nullptr));
-            std::string fileName = senderDir + "/message_" + timestamp + ".txt";
+            std::string fileName = receiverDir + "/message_" + timestamp + ".txt";
 
             // Write the message to the file
             std::ofstream outfile(fileName);

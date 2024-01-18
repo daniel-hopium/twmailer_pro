@@ -45,15 +45,6 @@ private:
 // Main function
 int main(int argc, char** argv);
 
-// Forward declarations for command handlers
-void handleSend(int current_socket, char* buffer);
-
-void handleList(int current_socket, char* buffer);
-
-void handleRead(int current_socket, char* buffer);
-
-void handleDelete(int current_socket, char* buffer);
-
 // Client class implementation
 
 Client::Client() : create_socket(-1), isQuit(false) {}
@@ -177,16 +168,51 @@ void Client::receiveFeedback() {
 
 void Client::handleSend() {
     string fullMessage = "SEND\n";
+    bool isValid = true;
 
-    cout << "Sender: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
+    cout << "Sender (max 8 chars): ";
+    while (true) {
+        cin.getline(buffer, BUF);
+        isValid = true;
 
-    cout << "Receiver: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
+        for (int i = 0; buffer[i] != '\0'; ++i) {
+            if (!islower(buffer[i]) || i >= 8) {
+                cerr << "Error: Sender exceeds maximum length or is not only in all lowercase  (8 characters).\n";
+                cout << "Sender (max. 8 lowercase chars): ";
+                isValid = false;
+                break;
+            }
+            
+        }
+        if(isValid)
+        {
+            fullMessage += buffer;
+            fullMessage += "\n";
+            isValid = true;
+            break;  // Exit the loop if the subject is valid
+        }
+    }
+
+    cout << "Receiver (max. 8 chars): ";
+    while (true) {
+        cin.getline(buffer, BUF);
+        isValid = true;
+
+        for (int i = 0; buffer[i] != '\0'; ++i) {
+            if (!islower(buffer[i]) || i >= 8) {
+                cerr << "Error: Receiver exceeds maximum length or is not only in all lowercase  (8 characters).\n";
+                cout << "Receiver (max. 8 chars): ";
+                isValid = false;
+                break;
+            }
+        }
+        if(isValid)
+        {
+            fullMessage += buffer;
+            fullMessage += "\n";
+            break;  // Exit the loop if the subject is valid
+        }
+    }
 
     cout << "Subject (max. 80 chars): ";
     while (true) {
