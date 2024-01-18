@@ -1,91 +1,123 @@
-#include <iostream>
-#include <cstring>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include <ldap.h>
+#include <iostream>
 
-#define LDAP_HOST "ldap.technikum-wien.at"
-#define LDAP_PORT 389
-#define LDAP_SEARCH_BASE "dc=technikum-wien,dc=at"
-
-// Function to initialize LDAP connection
-LDAP *initializeLDAP()
+int main(int argc, char *argv[])
 {
-  LDAP *ldap;
-  int ldapResult = ldap_initialize(&ldap, ("ldap://" LDAP_HOST ":389"));
+  ////////////////////////////////////////////////////////////////////////////
+  // LDAP config
+  // anonymous bind with user and pw empty
+  const char *ldapUri = "ldap://ldap.technikum-wien.at:389";
+  const int ldapVersion = LDAP_VERSION3;
 
-  if (ldapResult != LDAP_SUCCESS)
+  // read username (bash: export ldapuser=<yourUsername>)
+  char ldapBindUser[256];
+  char rawLdapUser[128];
+
+  const char *rawLdapUserEnv = getenv("ldapuser");
+  if (rawLdapUserEnv == NULL)
   {
-    std::cerr << "LDAP initialization failed. Error: " << ldap_err2string(ldapResult) << std::endl;
-    return nullptr; // Return nullptr on failure
-  }
-
-  return ldap;
-}
-
-// Function to authenticate user using LDAP
-bool authenticateUser(LDAP *ldap, const std::string &username, const std::string &password)
-{
-  int ldapResult;
-
-  // Set up SASL credentials
-  struct berval cred;
-  cred.bv_val = const_cast<char *>(password.c_str());
-  cred.bv_len = password.length();
-
-  // Perform SASL bind synchronously
-  ldapResult = ldap_sasl_bind_s(ldap,
-                                ("uid=" + username + ",ou=people," + LDAP_SEARCH_BASE).c_str(),
-                                LDAP_SASL_SIMPLE,
-                                &cred,
-                                nullptr, nullptr, nullptr);
-
-  if (ldapResult == LDAP_SUCCESS)
-  {
-    std::cout << "Authentication successful." << std::endl;
-    return true;
+    printf("(user not found... set to empty string)\n");
+    strcpy(ldapBindUser, "");
   }
   else
   {
-    std::cerr << "Authentication failed. Error: " << ldap_err2string(ldapResult) << std::endl;
-    return false;
-  }
-}
-
-int main()
-{
-  // Initialize LDAP
-  LDAP *ldap = initializeLDAP();
-
-  if (ldap == nullptr)
-  {
-    // Error message already printed in initializeLDAP
-    return 1;
+    sprintf(ldapBindUser, "uid=%s,ou=people,dc=technikum-wien,dc=at", rawLdapUserEnv);
+    printf("user based on environment variable ldapuser set to: %s\n", ldapBindUser);
   }
 
-  
+  // read password (bash: export ldappw=<yourPW>)
+  char ldapBindPassword[256];
 
-  // Example: Authenticate user with hidden password
-  std::string username;
-  std::cout << "Enter username: ";
-  std::cin >> username;
-
-  std::string password;
-  std::cout << "Enter password: ";
-  std::cin >> password;
-
-
-  std::cout << "wait ";
-  if (authenticateUser(ldap, username, password))
+  const char *ldapBindPasswordEnv = getenv("ldappw");
+  if (ldapBindPasswordEnv == NULL)
   {
-    // Perform other operations after successful authentication
-    std::cout << "Successfully logged in." << std::endl;
+    strcpy(ldapBindPassword, "");
+    printf("(pw not found... set to empty string)\n");
   }
   else
   {
-    std::cout << "Login failed." << std::endl;
+    strcpy(ldapBindPassword, ldapBindPasswordEnv);
+    printf("pw taken over from environment variable ldappw\n");
   }
 
-  // Close LDAP connection
-  ldap_unbind_ext_s(ldap, nullptr, nullptr);
+  // general
+  int rc = 0; // return code
 
-  return 0;
+  ////////////////////////////////////////////////////////////////////////////
+  // setup LDAP connection
+  // https://linux.die.net/man/3/ldap_initialize
+  LDAP *ldapHandle;
+  rc = ldap_initialize(&ldapHandle, ldapUri);
+  if (rc != LDAP_SUCCESS)
+  {
+    fprintf(stderr, "ldap_init failed\n");
+    return EXIT_FAILURE;
+  }
+  printf("connected to LDAP server %s\n", ldapUri);
+
+  ////////////////////////////////////////////////////////////////////////////
+  // set version options
+  // https://linux.die.net/man/3/ldap_set_option
+  rc = ldap_set_option(
+      ldapHandle,
+      LDAP_OPT_PROTOCOL_VERSION, // OPTION
+      &ldapVersion);             // IN-Value
+  if (rc != LDAP_OPT_SUCCESS)
+  {
+    // https://www.openldap.org/software/man.cgi?query=ldap_err2string&sektion=3&apropos=0&manpath=OpenLDAP+2.4-Release
+    fprintf(stderr, "ldap_set_option(PROTOCOL_VERSION): %s\n", ldap_err2string(rc));
+    ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+    return EXIT_FAILURE;
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  // start connection secure (initialize TLS)
+  // https://linux.die.net/man/3/ldap_start_tls_s
+  rc = ldap_start_tls_s(
+      ldapHandle,
+      NULL,
+      NULL);
+  if (rc != LDAP_SUCCESS)
+  {
+    fprintf(stderr, "ldap_start_tls_s(): %s\n", ldap_err2string(rc));
+    ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+    return EXIT_FAILURE;
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  // bind credentials for authentication
+  BerValue bindCredentials;
+  bindCredentials.bv_val = (char *)ldapBindPassword;
+  bindCredentials.bv_len = strlen(ldapBindPassword);
+  BerValue *servercredp; // server's credentials
+  rc = ldap_sasl_bind_s(
+      ldapHandle,
+      ldapBindUser,
+      LDAP_SASL_SIMPLE,
+      &bindCredentials,
+      NULL,
+      NULL,
+      &servercredp);
+  if (rc != LDAP_SUCCESS)
+  {
+    fprintf(stderr, "LDAP bind error: %s\n", ldap_err2string(rc));
+
+    if (rc == LDAP_INVALID_CREDENTIALS)
+    {
+      std::cout << "Invalid credentials";
+    }
+    ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+    return EXIT_FAILURE;
+  }
+
+  printf("Authentication successful.\n");
+
+  ////////////////////////////////////////////////////////////////////////////
+  // unbind and close connection
+  ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+
+  return EXIT_SUCCESS;
 }
