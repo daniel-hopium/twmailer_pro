@@ -1,3 +1,5 @@
+// server.h
+
 #ifndef SERVER_H
 #define SERVER_H
 
@@ -8,6 +10,7 @@
 class Server
 {
 public:
+  Server(Blacklist &bl, const std::string &dir) : mailDir(dir), blacklist(bl) {}
   void *clientCommunication(void *data, std::string ipAddress);
 
 private:
@@ -15,7 +18,7 @@ private:
   int new_socket;
   bool abortRequested;
   std::string mailDir;
-  Blacklist blacklist;
+  Blacklist &blacklist;
 
   // Helper function to send messages to the client
   void sendMessage(int current_socket, const std::string &message);
@@ -29,6 +32,6 @@ private:
 
   bool isAuthorized(std::string username, int current_socket);
 };
-  void signalHandler(int sig);
+void signalHandler(int sig);
 
 #endif // SERVER_H

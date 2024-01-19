@@ -5,7 +5,7 @@
 #include <ldap.h>
 #include <iostream>
 
-std::string LDAPAuthentication::authenticateUser( std::string rawLdapUser,  std::string rawLdapPassword)
+std::string LDAPAuthentication::authenticateUser(std::string rawLdapUser, std::string rawLdapPassword)
 {
 
   ////////////////////////////////////////////////////////////////////////////
@@ -21,7 +21,6 @@ std::string LDAPAuthentication::authenticateUser( std::string rawLdapUser,  std:
   const char *rawLdapUserCStr = rawLdapUser.c_str();
 
   sprintf(ldapBindUser, "uid=%s,ou=people,dc=technikum-wien,dc=at", rawLdapUserCStr);
-  printf("user based on environment variable ldapuser set to: %s\n", ldapBindUser);
 
   // general
   int rc = 0; // return code
@@ -95,5 +94,5 @@ std::string LDAPAuthentication::authenticateUser( std::string rawLdapUser,  std:
   // unbind and close connection
   ldap_unbind_ext_s(ldapHandle, NULL, NULL);
 
-  return ldapBindUser;
+  return rawLdapUser;
 }

@@ -5,11 +5,11 @@
 #include <ctime>
 #include <string>
 
+
 void Blacklist::writeAttemptToBlacklist(std::string username, std::string ipAddress)
 {
-  // Generate a unique filename for each received message using a timestamp
-  std::string blacklistDir = mailDir + "/" + "blacklist/";
-  std::string fileName = blacklistDir + ipAddress + ".txt";
+
+  std::string  fileName = blacklistDir + ipAddress + ".txt";
 
   // Write the message to the file in append mode
   std::ofstream blacklistFile(fileName, std::ios::app);
@@ -32,7 +32,6 @@ void Blacklist::writeAttemptToBlacklist(std::string username, std::string ipAddr
 int Blacklist::getLoginAttempts(std::string ipAddress)
 {
   // Generate the filename for the blacklist file
-  std::string blacklistDir = mailDir + "/" + "blacklist/";
   std::string fileName = blacklistDir + ipAddress + ".txt";
 
   // Check if file exists
@@ -58,7 +57,6 @@ int Blacklist::getLoginAttempts(std::string ipAddress)
     loginAttempts++;
   }
 
-  std::cout << "Login attempts for IP " << ipAddress << ": " << loginAttempts << std::endl;
   return loginAttempts;
 }
 
@@ -80,7 +78,6 @@ bool Blacklist::isBlacklisted(std::string ipAddress)
   }
 
   // Generate a unique filename for each received message using a timestamp
-  std::string blacklistDir = mailDir + "/" + "blacklist/";
   std::string fileName = blacklistDir + ipAddress + ".txt";
 
   std::string lastEntry = extractLastEntry(fileName);
@@ -104,7 +101,6 @@ bool Blacklist::isBlacklisted(std::string ipAddress)
 void Blacklist::blacklistIp(std::string ipAddress)
 {
   // Generate a unique filename for each received message using a timestamp
-  std::string blacklistDir = mailDir + "/" + "blacklist/";
   std::string fileName = blacklistDir + ipAddress + ".txt";
 
   // Write the message to the file in append mode
@@ -129,7 +125,6 @@ void Blacklist::blacklistIp(std::string ipAddress)
 
 void Blacklist::clearBlacklist(std::string ipAddress)
 {
-  std::string blacklistDir = mailDir + "/" + "blacklist/";
   std::string fileName = blacklistDir + ipAddress + ".txt";
 
   // Use remove to delete the file
@@ -141,6 +136,11 @@ void Blacklist::clearBlacklist(std::string ipAddress)
   {
     perror("Error clearing blacklist");
   }
+}
+void Blacklist::printLoginAttempts(std::string ipAddress)
+{
+  int loginAttempts = getLoginAttempts(ipAddress);
+  std::cout << "Login attempts for IP " + ipAddress + ": " << loginAttempts << std::endl;
 }
 
 std::string Blacklist::extractLastEntry(const std::string &filePath)

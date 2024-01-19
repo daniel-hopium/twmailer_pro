@@ -6,7 +6,7 @@
 class Blacklist
 {
 public:
-  std::string mailDir;
+  std::string blacklistDir;
 
   int getLoginAttempts(std::string ipAddress);
   void writeAttemptToBlacklist(std::string username, std::string ipAddress);
@@ -14,6 +14,7 @@ public:
   void clearBlacklist(std::string ipAddress);
   bool isBlacklisted(std::string ipAddress);
   bool hasTooManyAttempts(std::string ipAddress);
+  void printLoginAttempts(std::string ipAddress);
   std::string extractLastEntry(const std::string &filePath);
 };
 

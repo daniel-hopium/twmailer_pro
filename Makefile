@@ -13,10 +13,10 @@ $(BIN_DIR)twmailer-client: $(OBJ_DIR)twmailer-client.o $(OBJ_DIR)encryption.o
 $(BIN_DIR)twmailer-server: $(OBJ_DIR)twmailer-server.o $(OBJ_DIR)encryption.o  $(OBJ_DIR)ldap_authentication.o $(OBJ_DIR)blacklist.o
 	$(CC) $(CFLAGS) -o $@ $^ -I$(INC_DIR)  -lldap -llber
 
-$(OBJ_DIR)twmailer-client.o: $(SRC_DIR)twmailer-client.cpp $(INC_DIR)encryption.h
+$(OBJ_DIR)twmailer-client.o: $(SRC_DIR)client.cpp $(INC_DIR)server.h $(INC_DIR)encryption.h
 	$(CC) $(CFLAGS) -c -o $@ $< -I$(INC_DIR)
 
-$(OBJ_DIR)twmailer-server.o: $(SRC_DIR)twmailer-server.cpp $(INC_DIR)twmailer-server.h $(INC_DIR)encryption.h $(INC_DIR)ldap_authentication.h $(INC_DIR)blacklist.h
+$(OBJ_DIR)twmailer-server.o: $(SRC_DIR)server.cpp $(INC_DIR)server.h $(INC_DIR)encryption.h $(INC_DIR)ldap_authentication.h $(INC_DIR)blacklist.h
 	$(CC) $(CFLAGS) -c -o $@ $< -I$(INC_DIR) 
 
 $(OBJ_DIR)encryption.o: $(SRC_DIR)encryption.cpp $(INC_DIR)encryption.h

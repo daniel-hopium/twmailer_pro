@@ -17,21 +17,18 @@
 #include <vector>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "encryption.h"
 #include <filesystem>
+
+#include "server.h"
+#include "encryption.h"
 #include "ldap_authentication.h"
 #include "blacklist.h"
-#include "twmailer-server.h"
-
-#include <ldap.h>
 
 #define BUF 1024
 
 int abortRequested = 0;
 int create_socket = -1;
 int new_socket = -1;
-std::string mailDir;
-Blacklist blacklist;
 
 int main(int argc, char **argv)
 {
@@ -40,13 +37,16 @@ int main(int argc, char **argv)
         std::cerr << "Usage: " << argv[0] << " <port> <mail-spool-directoryname>" << std::endl;
         return EXIT_FAILURE;
     }
-    Server server;
-
 
     int port = atoi(argv[1]);
-    mailDir = argv[2];
+    std::string extractedMailDir = argv[2];
+    
+    //Initialize Classes
+    Blacklist blacklist;
+    Server server(blacklist, extractedMailDir);
+
     // Give blacklist class the maildirec
-    blacklist.mailDir = mailDir;
+    blacklist.blacklistDir = extractedMailDir + "/blacklist/";
 
     socklen_t addrlen;
     struct sockaddr_in address, cliaddress;
@@ -108,15 +108,14 @@ int main(int argc, char **argv)
     }
 
     // Create the mail-spool directory if it doesn't exist
-    if (mkdir(mailDir.c_str(), 0777) == -1 && errno != EEXIST)
+    if (mkdir(extractedMailDir.c_str(), 0777) == -1 && errno != EEXIST)
     {
         perror("Error creating mail-spool directory");
         return EXIT_FAILURE;
     }
 
     // Create the blacklist directory if it doesn't exist
-    std::string blacklistDir = mailDir + "/" + "blacklist";
-    if (mkdir(blacklistDir.c_str(), 0777) == -1 && errno != EEXIST)
+    if (mkdir(blacklist.blacklistDir.c_str(), 0777) == -1 && errno != EEXIST)
     {
         perror("Error creating mail-spool directory");
         return EXIT_FAILURE;
@@ -165,7 +164,7 @@ int main(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
-void* Server::clientCommunication(void *data, std::string ipAddress)
+void *Server::clientCommunication(void *data, std::string ipAddress)
 {
     char buffer[BUF];
     int size;
@@ -341,23 +340,22 @@ std::string Server::handleLogin(int current_socket, std::istringstream &bufferSt
         return username;
     }
 
-    std::cout << "LOGIN operation unsuccessful for user " << username << ": " << returnString << std::endl;
+    std::cout << "\nLOGIN operation unsuccessful for user " << username << ": " << returnString << std::endl;
 
     blacklist.writeAttemptToBlacklist(username, ipAddress);
-    std::cout << blacklist.getLoginAttempts(ipAddress) << std::endl;
     if (blacklist.hasTooManyAttempts(ipAddress))
     {
         // Respond to the client
         const char errorMessage[] = "ERR - blacklisted - too many attempts\n";
         sendMessage(current_socket, errorMessage);
-        std::cout << "Too many attempts for user " << username << " -> blacklisted for 60 seconds" << std::endl;
+        std::cout << "Too many attempts for user with IP Adress " << ipAddress << " -> blacklisted for 60 seconds" << std::endl;
     }
     else
     {
+        blacklist.printLoginAttempts(ipAddress);
         // Respond to the client
         const char errorMessage[] = "ERR\n";
         sendMessage(current_socket, errorMessage);
-        // Log the LOGIN operation
     }
 
     return "";
@@ -677,7 +675,6 @@ void Server::sendMessage(int current_socket, const std::string &message)
     }
 }
 
-
 bool Server::isAuthorized(std::string username, int current_socket)
 {
 
@@ -693,4 +690,3 @@ bool Server::isAuthorized(std::string username, int current_socket)
     }
     return true;
 }
-

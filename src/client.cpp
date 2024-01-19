@@ -2,53 +2,15 @@
 #include <cstring>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "encryption.h"
+#include "client.h"
 
 #define BUF 1024
 
 using namespace std;
 
-class Client
-{
-public:
-    Client();
 
-    ~Client();
-
-    void run(const char *serverIp, int serverPort);
-
-private:
-    int create_socket;
-    char buffer[BUF];
-    bool isQuit;
-
-    void closeConnection();
-
-    int setupConnection(const char *serverIp, int serverPort);
-
-    void receiveData();
-
-    void processInput();
-
-    void sendData();
-
-    void receiveFeedback();
-
-    // Command handlers
-    void handleSend();
-
-    void handleList();
-
-    void handleRead();
-
-    void handleDelete();
-};
-
-// Main function
-int main(int argc, char **argv);
-
-// Client class implementation
-
-Client::Client() : create_socket(-1), isQuit(false) {}
+Client::Client() : create_socket(-1), isQuit(false), isValidCommand(true) {}
 
 Client::~Client()
 {
@@ -73,8 +35,15 @@ void Client::run(const char *serverIp, int serverPort)
         if (cin.getline(buffer, BUF))
         {
             processInput();
-            sendData();
-            receiveFeedback();
+            if (!isValidCommand)
+            {
+                isValidCommand = true;
+            }
+            else
+            {
+                sendData();
+                receiveFeedback();
+            }
         }
     } while (!isQuit);
 }
@@ -147,7 +116,11 @@ void Client::processInput()
     }
     isQuit = strcmp(buffer, "quit") == 0;
 
-    if (strncmp(buffer, "SEND", 4) == 0)
+    if (strncmp(buffer, "LOGIN", 4) == 0)
+    {
+        handleLogin();
+    }
+    else if (strncmp(buffer, "SEND", 4) == 0)
     {
         handleSend();
     }
@@ -162,6 +135,11 @@ void Client::processInput()
     else if (strncmp(buffer, "DEL", 3) == 0)
     {
         handleDelete();
+    }
+    else
+    {
+        std::cout << "Invalid command. Please try again.\n";
+        isValidCommand = false;
     }
 }
 
@@ -202,13 +180,12 @@ void Client::receiveFeedback()
 }
 
 // Command handlers
-
-void Client::handleSend()
+void Client::handleLogin()
 {
-    string fullMessage = "SEND\n";
+    string fullMessage = "LOGIN\n";
     bool isValid = true;
 
-    cout << "Sender (max 8 chars): ";
+    cout << "Username (max 8 chars): ";
     while (true)
     {
         cin.getline(buffer, BUF);
@@ -216,10 +193,10 @@ void Client::handleSend()
 
         for (int i = 0; buffer[i] != '\0'; ++i)
         {
-            if (!islower(buffer[i]) || i >= 8)
+            if ( i >= 8 )
             {
-                cerr << "Error: Sender exceeds maximum length or is not only in all lowercase  (8 characters).\n";
-                cout << "Sender (max. 8 lowercase chars): ";
+                cerr << "Error: Username exceeds maximum length, is not only in all lowercase or contains special characters.\n";
+                cout << "Username (max. 8 lowercase chars): ";
                 isValid = false;
                 break;
             }
@@ -232,6 +209,22 @@ void Client::handleSend()
             break; // Exit the loop if the subject is valid
         }
     }
+    // Get and validate password using getpass
+    char *password = getpass("Password: ");
+    string passwordString(password); // Convert the C-style string to C++ string
+
+    //  Encrypt password
+    Encryption encryption;
+    passwordString = encryption.encrypt(passwordString);
+    fullMessage += passwordString;
+    // Send the entire message to the server
+    strncpy(buffer, fullMessage.c_str(), BUF);
+}
+
+void Client::handleSend()
+{
+    string fullMessage = "SEND\n";
+    bool isValid = true;
 
     cout << "Receiver (max. 8 chars): ";
     while (true)
@@ -241,9 +234,9 @@ void Client::handleSend()
 
         for (int i = 0; buffer[i] != '\0'; ++i)
         {
-            if (!islower(buffer[i]) || i >= 8)
+            if (i > 8)
             {
-                cerr << "Error: Receiver exceeds maximum length or is not only in all lowercase  (8 characters).\n";
+                cerr << "Error: Receiver exceeds maximum length or is not only in all lowercase.\n";
                 cout << "Receiver (max. 8 chars): ";
                 isValid = false;
                 break;
@@ -296,11 +289,6 @@ void Client::handleList()
 {
     string fullMessage = "LIST\n";
 
-    cout << "Username: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
-
     // Send the LIST command to the server
     strncpy(buffer, fullMessage.c_str(), BUF);
 }
@@ -308,11 +296,6 @@ void Client::handleList()
 void Client::handleRead()
 {
     string fullMessage = "READ\n";
-
-    cout << "Username: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
 
     do
     {
@@ -340,11 +323,6 @@ void Client::handleDelete()
 {
     string fullMessage = "DEL\n";
 
-    cout << "Username: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
-
     do
     {
         cout << "Message-Number: ";
@@ -367,7 +345,6 @@ void Client::handleDelete()
     strncpy(buffer, fullMessage.c_str(), BUF);
 }
 
-// Main function
 
 int main(int argc, char **argv)
 {
