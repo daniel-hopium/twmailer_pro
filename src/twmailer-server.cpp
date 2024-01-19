@@ -13,13 +13,14 @@
 #include <fcntl.h>
 #include <fstream>
 #include <sstream>
-#include <vector>
 #include <dirent.h>
-#include "encryption.h"
+#include <vector>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include "encryption.h"
 #include <filesystem>
 #include "ldap_authentication.h"
+#include "blacklist.h"
 
 #include <ldap.h>
 
@@ -28,7 +29,8 @@
 int abortRequested = 0;
 int create_socket = -1;
 int new_socket = -1;
-std::string mailSpoolDir;
+std::string mailDir;
+Blacklist blacklist;
 
 void *clientCommunication(void *data, std::string ipAddress);
 void signalHandler(int sig);
@@ -44,13 +46,15 @@ void handleRead(int current_socket, std::istringstream &bufferStream, std::strin
 void handleDelete(int current_socket, std::istringstream &bufferStream, std::string username);
 
 bool isAuthorized(std::string username, int current_socket);
-void writeToBlacklist(std::string username, std::string ipAddress);
-int getLoginAttempts(std::string ipAddress);
-void blacklistIp(std::string ipAddress);
-std::string extractLastEntry(const std::string &filePath);
-void clearBlacklist(std::string ipAddress);
-bool isBlacklisted(std::string ipAddress);
-bool hasTooManyAttempts(std::string ipAddress);
+
+// bool isAuthorized(std::string username, int current_socket);
+// void writeAttemptToBlacklist(std::string username, std::string ipAddress);
+// int getLoginAttempts(std::string ipAddress);
+// void blacklistIp(std::string ipAddress);
+// std::string extractLastEntry(const std::string &filePath);
+// void clearBlacklist(std::string ipAddress);
+// bool isBlacklisted(std::string ipAddress);
+// bool hasTooManyAttempts(std::string ipAddress);
 
 // std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword);
 
@@ -63,7 +67,9 @@ int main(int argc, char **argv)
     }
 
     int port = atoi(argv[1]);
-    mailSpoolDir = argv[2];
+    mailDir = argv[2];
+    // Give blacklist class the maildirec
+    blacklist.mailDir = mailDir;
 
     socklen_t addrlen;
     struct sockaddr_in address, cliaddress;
@@ -125,19 +131,20 @@ int main(int argc, char **argv)
     }
 
     // Create the mail-spool directory if it doesn't exist
-    if (mkdir(mailSpoolDir.c_str(), 0777) == -1 && errno != EEXIST)
+    if (mkdir(mailDir.c_str(), 0777) == -1 && errno != EEXIST)
     {
         perror("Error creating mail-spool directory");
         return EXIT_FAILURE;
     }
 
     // Create the blacklist directory if it doesn't exist
-    std::string blacklistDir = mailSpoolDir + "/" + "blacklist";
+    std::string blacklistDir = mailDir + "/" + "blacklist";
     if (mkdir(blacklistDir.c_str(), 0777) == -1 && errno != EEXIST)
     {
         perror("Error creating mail-spool directory");
         return EXIT_FAILURE;
     }
+    
 
     while (!abortRequested)
     {
@@ -187,6 +194,7 @@ void *clientCommunication(void *data, std::string ipAddress)
     char buffer[BUF];
     int size;
     int *current_socket = (int *)data;
+    // Username to see if user is logged in
     std::string username = "";
 
     // SEND welcome message
@@ -287,7 +295,7 @@ void *clientCommunication(void *data, std::string ipAddress)
 
 std::string handleLogin(int current_socket, std::istringstream &bufferStream, std::string ipAddress)
 {
-    if (isBlacklisted(ipAddress))
+    if (blacklist.isBlacklisted(ipAddress))
     {
         // Respond to the client
         const char errorMessage[] = "ERR - blacklisted - too many attempts\n";
@@ -320,9 +328,9 @@ std::string handleLogin(int current_socket, std::istringstream &bufferStream, st
 
     std::cout << "LOGIN operation unsuccessful for user " << username << ": " << returnString << std::endl;
 
-    writeToBlacklist(username, ipAddress);
-    std::cout << getLoginAttempts(ipAddress) << std::endl;
-    if (hasTooManyAttempts(ipAddress))
+    blacklist.writeAttemptToBlacklist(username, ipAddress);
+    std::cout << blacklist.getLoginAttempts(ipAddress) << std::endl;
+    if (blacklist.hasTooManyAttempts(ipAddress))
     {
         // Respond to the client
         const char errorMessage[] = "ERR - blacklisted - too many attempts\n";
@@ -367,7 +375,7 @@ void handleSend(int current_socket, std::istringstream &bufferStream, std::strin
     }
 
     // Save the message in the receiver's directory
-    std::string receiverDir = mailSpoolDir + "/" + receiver;
+    std::string receiverDir = mailDir + "/" + receiver;
     mkdir(receiverDir.c_str(), 0777);
 
     // Generate a unique filename for each received message using a timestamp
@@ -405,7 +413,7 @@ void handleList(int current_socket, std::string username)
     std::cout << "LIST request for user: " << username << std::endl;
 
     // Get the list of messages for the user
-    std::string userDir = mailSpoolDir + "/" + username;
+    std::string userDir = mailDir + "/" + username;
     DIR *dir;
     struct dirent *ent;
     int messageCount = 0;
@@ -483,7 +491,7 @@ void handleRead(int current_socket, std::istringstream &bufferStream, std::strin
     int messageNumber = std::stoi(messageNumberStr);
 
     // Get the user's directory
-    std::string userDir = mailSpoolDir + "/" + username;
+    std::string userDir = mailDir + "/" + username;
 
     // Log the request
     std::cout << "READ request for user: " << username << ", message number: " << messageNumber << std::endl;
@@ -576,7 +584,7 @@ void handleDelete(int current_socket, std::istringstream &bufferStream, std::str
     int messageNumber = std::stoi(messageNumberStr);
 
     // Get the user's directory
-    std::string userDir = mailSpoolDir + "/" + username;
+    std::string userDir = mailDir + "/" + username;
 
     // Check if the user directory exists
     DIR *dir = opendir(userDir.c_str());
@@ -707,257 +715,3 @@ bool isAuthorized(std::string username, int current_socket)
     }
     return true;
 }
-
-void writeToBlacklist(std::string username, std::string ipAddress)
-{
-    // Generate a unique filename for each received message using a timestamp
-    std::string blacklistDir = mailSpoolDir + "/" + "blacklist/";
-    std::string fileName = blacklistDir + ipAddress + ".txt";
-
-    // Write the message to the file in append mode
-    std::ofstream blacklistFile(fileName, std::ios::app);
-    if (blacklistFile.is_open())
-    {
-        // Get the current timestamp
-        time_t currentTime = time(nullptr);
-        std::string timestamp = std::to_string(currentTime);
-
-        // Append the message to the file
-        blacklistFile << timestamp << " " << username << "\n";
-        blacklistFile.close();
-    }
-    else
-    {
-        perror("Error writing message to file");
-    }
-}
-
-int getLoginAttempts(std::string ipAddress)
-{
-    // Generate the filename for the blacklist file
-    std::string blacklistDir = mailSpoolDir + "/" + "blacklist/";
-    std::string fileName = blacklistDir + ipAddress + ".txt";
-
-    // Check if file exists
-    std::ifstream file(fileName);
-    if (!file.good())
-    {
-        return 0;
-    }
-
-    // Open the blacklist file
-    std::ifstream blacklistFile(fileName);
-    if (!blacklistFile.is_open())
-    {
-        std::cerr << "Error opening blacklist file for IP: " << ipAddress << std::endl;
-        return -1;
-    }
-
-    // Count the number of lines (login attempts)
-    int loginAttempts = 0;
-    std::string line;
-    while (std::getline(blacklistFile, line))
-    {
-        loginAttempts++;
-    }
-
-    std::cout << "Login attempts for IP " << ipAddress << ": " << loginAttempts << std::endl;
-    return loginAttempts;
-}
-
-bool hasTooManyAttempts(std::string ipAddress)
-{
-    if (getLoginAttempts(ipAddress) == 3)
-    {
-        blacklistIp(ipAddress);
-        return true;
-    }
-    return false;
-}
-
-bool isBlacklisted(std::string ipAddress)
-{
-    if (getLoginAttempts(ipAddress) != 4)
-    {
-        return false;
-    }
-
-    // Generate a unique filename for each received message using a timestamp
-    std::string blacklistDir = mailSpoolDir + "/" + "blacklist/";
-    std::string fileName = blacklistDir + ipAddress + ".txt";
-
-    std::string lastEntry = extractLastEntry(fileName);
-
-    // Extract last entry for comparison
-    std::istringstream iss(lastEntry);
-    std::string lastEntryTimeStr;
-    iss >> lastEntryTimeStr;
-    time_t lastEntryTime = std::stoll(lastEntryTimeStr);
-
-    time_t currentTime = time(nullptr);
-
-    if (currentTime - lastEntryTime > 60)
-    {
-        clearBlacklist(ipAddress);
-        return false;
-    }
-    return true;
-}
-
-void blacklistIp(std::string ipAddress)
-{
-    // Generate a unique filename for each received message using a timestamp
-    std::string blacklistDir = mailSpoolDir + "/" + "blacklist/";
-    std::string fileName = blacklistDir + ipAddress + ".txt";
-
-    // Write the message to the file in append mode
-    std::ofstream blacklistFile(fileName, std::ios::app);
-    if (blacklistFile.is_open())
-    {
-        // Get the current timestamp
-        time_t currentTime = time(nullptr);
-        std::string timestamp = std::to_string(currentTime);
-
-        // Append the message to the file
-        blacklistFile << timestamp << " "
-                      << "BLACKLISTED"
-                      << "\n";
-        blacklistFile.close();
-    }
-    else
-    {
-        perror("Error writing message to file");
-    }
-}
-
-void clearBlacklist(std::string ipAddress)
-{
-    std::string blacklistDir = mailSpoolDir + "/" + "blacklist/";
-    std::string fileName = blacklistDir + ipAddress + ".txt";
-
-    // Use remove to delete the file
-    if (remove(fileName.c_str()) == 0)
-    {
-        std::cout << "Blacklist for IP " << ipAddress << " cleared successfully." << std::endl;
-    }
-    else
-    {
-        perror("Error clearing blacklist");
-    }
-}
-
-std::string extractLastEntry(const std::string &filePath)
-{
-    std::ifstream file(filePath);
-
-    if (!file.is_open())
-    {
-        std::cerr << "Error opening file: " << filePath << std::endl;
-        return "";
-    }
-
-    std::string lastEntry;
-
-    // Read the file line by line
-    std::string line;
-    while (std::getline(file, line))
-    {
-        lastEntry = line; // Update last entry for each line read
-    }
-
-    file.close();
-    return lastEntry;
-}
-
-// std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword)
-// {
-
-//     ////////////////////////////////////////////////////////////////////////////
-//     // LDAP config
-//     // anonymous bind with user and pw empty
-//     const char *ldapUri = "ldap://ldap.technikum-wien.at:389";
-//     const int ldapVersion = LDAP_VERSION3;
-
-//     char ldapBindUser[256];
-//     char ldapBindPassword[256];
-//     strcpy(ldapBindPassword, rawLdapPassword.c_str());
-
-//     const char *rawLdapUserCStr = rawLdapUser.c_str();
-
-//     sprintf(ldapBindUser, "uid=%s,ou=people,dc=technikum-wien,dc=at", rawLdapUserCStr);
-//     printf("user based on environment variable ldapuser set to: %s\n", ldapBindUser);
-
-//     // general
-//     int rc = 0; // return code
-
-//     ////////////////////////////////////////////////////////////////////////////
-//     // setup LDAP connection
-//     LDAP *ldapHandle;
-//     rc = ldap_initialize(&ldapHandle, ldapUri);
-//     if (rc != LDAP_SUCCESS)
-//     {
-//         fprintf(stderr, "ldap_init failed\n");
-//         return "Authentication failed";
-//     }
-//     printf("connected to LDAP server %s\n", ldapUri);
-
-//     ////////////////////////////////////////////////////////////////////////////
-//     // set version options
-//     rc = ldap_set_option(
-//         ldapHandle,
-//         LDAP_OPT_PROTOCOL_VERSION, // OPTION
-//         &ldapVersion);             // IN-Value
-//     if (rc != LDAP_OPT_SUCCESS)
-//     {
-//         fprintf(stderr, "ldap_set_option(PROTOCOL_VERSION): %s\n", ldap_err2string(rc));
-//         ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-//         return "Authentication failed";
-//     }
-
-//     ////////////////////////////////////////////////////////////////////////////
-//     // start connection secure (initialize TLS)
-//     rc = ldap_start_tls_s(
-//         ldapHandle,
-//         NULL,
-//         NULL);
-//     if (rc != LDAP_SUCCESS)
-//     {
-//         fprintf(stderr, "ldap_start_tls_s(): %s\n", ldap_err2string(rc));
-//         ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-//         return "Authentication failed";
-//     }
-
-//     ////////////////////////////////////////////////////////////////////////////
-//     // bind credentials for authentication
-//     BerValue bindCredentials;
-//     bindCredentials.bv_val = (char *)ldapBindPassword;
-//     bindCredentials.bv_len = strlen(ldapBindPassword);
-//     BerValue *servercredp; // server's credentials
-//     rc = ldap_sasl_bind_s(
-//         ldapHandle,
-//         ldapBindUser,
-//         LDAP_SASL_SIMPLE,
-//         &bindCredentials,
-//         NULL,
-//         NULL,
-//         &servercredp);
-//     if (rc != LDAP_SUCCESS)
-//     {
-//         fprintf(stderr, "LDAP bind error: %s\n", ldap_err2string(rc));
-
-//         if (rc == LDAP_INVALID_CREDENTIALS)
-//         {
-//             std::cout << "Invalid credentials";
-//         }
-//         ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-//         return "Authentication failed";
-//     }
-
-//     printf("Authentication successful.\n");
-
-//     ////////////////////////////////////////////////////////////////////////////
-//     // unbind and close connection
-//     ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-
-//     return rawLdapUser;
-// }
