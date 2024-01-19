@@ -256,31 +256,6 @@ void Client::handleSend()
     string fullMessage = "SEND\n";
     bool isValid = true;
 
-    cout << "Sender (max 8 chars): ";
-    while (true)
-    {
-        cin.getline(buffer, BUF);
-        isValid = true;
-
-        for (int i = 0; buffer[i] != '\0'; ++i)
-        {
-            if (!islower(buffer[i]) || i >= 8)
-            {
-                cerr << "Error: Sender exceeds maximum length or is not only in all lowercase  (8 characters).\n";
-                cout << "Sender (max. 8 lowercase chars): ";
-                isValid = false;
-                break;
-            }
-        }
-        if (isValid)
-        {
-            fullMessage += buffer;
-            fullMessage += "\n";
-            isValid = true;
-            break; // Exit the loop if the subject is valid
-        }
-    }
-
     cout << "Receiver (max. 8 chars): ";
     while (true)
     {
@@ -344,11 +319,6 @@ void Client::handleList()
 {
     string fullMessage = "LIST\n";
 
-    cout << "Username: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
-
     // Send the LIST command to the server
     strncpy(buffer, fullMessage.c_str(), BUF);
 }
@@ -356,11 +326,6 @@ void Client::handleList()
 void Client::handleRead()
 {
     string fullMessage = "READ\n";
-
-    cout << "Username: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
 
     do
     {
@@ -387,11 +352,6 @@ void Client::handleRead()
 void Client::handleDelete()
 {
     string fullMessage = "DEL\n";
-
-    cout << "Username: ";
-    cin.getline(buffer, BUF);
-    fullMessage += buffer;
-    fullMessage += "\n";
 
     do
     {
