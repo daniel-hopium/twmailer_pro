@@ -19,7 +19,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <filesystem>
-// #include "ldap_authentication.h"
+#include "ldap_authentication.h"
 
 #include <ldap.h>
 
@@ -52,7 +52,7 @@ void clearBlacklist(std::string ipAddress);
 bool isBlacklisted(std::string ipAddress);
 bool hasTooManyAttempts(std::string ipAddress);
 
-std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword);
+// std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword);
 
 int main(int argc, char **argv)
 {
@@ -239,7 +239,7 @@ void *clientCommunication(void *data, std::string ipAddress)
         {
             username = handleLogin(*current_socket, bufferStream, ipAddress);
         }
-        if (command == "SEND")
+        else if (command == "SEND")
         {
             handleSend(*current_socket, bufferStream, username);
         }
@@ -306,7 +306,8 @@ std::string handleLogin(int current_socket, std::istringstream &bufferStream, st
     std::getline(bufferStream, password);
 
     Encryption encryption;
-    std::string returnString = authenticateUser(username, encryption.decrypt(password));
+    LDAPAuthentication LDAPAuthentication;
+    std::string returnString = LDAPAuthentication.authenticateUser(username, encryption.decrypt(password));
 
     if (username == returnString)
     {
@@ -377,8 +378,7 @@ void handleSend(int current_socket, std::istringstream &bufferStream, std::strin
     std::ofstream outfile(fileName);
     if (outfile.is_open())
     {
-        outfile << "Sender: " << sender << "\nSubject: " << subject << "\n"
-                << message;
+        outfile << "Sender: " << sender << "\nSubject: " << subject << "\nMessage: " << message;
         outfile.close();
     }
     else
@@ -565,6 +565,9 @@ void handleRead(int current_socket, std::istringstream &bufferStream, std::strin
 
 void handleDelete(int current_socket, std::istringstream &bufferStream, std::string username)
 {
+    if (!isAuthorized(username, current_socket))
+        return;
+
     // Extract message number
     std::string messageNumberStr;
     std::getline(bufferStream, messageNumberStr);
@@ -866,95 +869,95 @@ std::string extractLastEntry(const std::string &filePath)
     return lastEntry;
 }
 
-std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword)
-{
+// std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword)
+// {
 
-    ////////////////////////////////////////////////////////////////////////////
-    // LDAP config
-    // anonymous bind with user and pw empty
-    const char *ldapUri = "ldap://ldap.technikum-wien.at:389";
-    const int ldapVersion = LDAP_VERSION3;
+//     ////////////////////////////////////////////////////////////////////////////
+//     // LDAP config
+//     // anonymous bind with user and pw empty
+//     const char *ldapUri = "ldap://ldap.technikum-wien.at:389";
+//     const int ldapVersion = LDAP_VERSION3;
 
-    char ldapBindUser[256];
-    char ldapBindPassword[256];
-    strcpy(ldapBindPassword, rawLdapPassword.c_str());
+//     char ldapBindUser[256];
+//     char ldapBindPassword[256];
+//     strcpy(ldapBindPassword, rawLdapPassword.c_str());
 
-    const char *rawLdapUserCStr = rawLdapUser.c_str();
+//     const char *rawLdapUserCStr = rawLdapUser.c_str();
 
-    sprintf(ldapBindUser, "uid=%s,ou=people,dc=technikum-wien,dc=at", rawLdapUserCStr);
-    printf("user based on environment variable ldapuser set to: %s\n", ldapBindUser);
+//     sprintf(ldapBindUser, "uid=%s,ou=people,dc=technikum-wien,dc=at", rawLdapUserCStr);
+//     printf("user based on environment variable ldapuser set to: %s\n", ldapBindUser);
 
-    // general
-    int rc = 0; // return code
+//     // general
+//     int rc = 0; // return code
 
-    ////////////////////////////////////////////////////////////////////////////
-    // setup LDAP connection
-    LDAP *ldapHandle;
-    rc = ldap_initialize(&ldapHandle, ldapUri);
-    if (rc != LDAP_SUCCESS)
-    {
-        fprintf(stderr, "ldap_init failed\n");
-        return "Authentication failed";
-    }
-    printf("connected to LDAP server %s\n", ldapUri);
+//     ////////////////////////////////////////////////////////////////////////////
+//     // setup LDAP connection
+//     LDAP *ldapHandle;
+//     rc = ldap_initialize(&ldapHandle, ldapUri);
+//     if (rc != LDAP_SUCCESS)
+//     {
+//         fprintf(stderr, "ldap_init failed\n");
+//         return "Authentication failed";
+//     }
+//     printf("connected to LDAP server %s\n", ldapUri);
 
-    ////////////////////////////////////////////////////////////////////////////
-    // set version options
-    rc = ldap_set_option(
-        ldapHandle,
-        LDAP_OPT_PROTOCOL_VERSION, // OPTION
-        &ldapVersion);             // IN-Value
-    if (rc != LDAP_OPT_SUCCESS)
-    {
-        fprintf(stderr, "ldap_set_option(PROTOCOL_VERSION): %s\n", ldap_err2string(rc));
-        ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-        return "Authentication failed";
-    }
+//     ////////////////////////////////////////////////////////////////////////////
+//     // set version options
+//     rc = ldap_set_option(
+//         ldapHandle,
+//         LDAP_OPT_PROTOCOL_VERSION, // OPTION
+//         &ldapVersion);             // IN-Value
+//     if (rc != LDAP_OPT_SUCCESS)
+//     {
+//         fprintf(stderr, "ldap_set_option(PROTOCOL_VERSION): %s\n", ldap_err2string(rc));
+//         ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+//         return "Authentication failed";
+//     }
 
-    ////////////////////////////////////////////////////////////////////////////
-    // start connection secure (initialize TLS)
-    rc = ldap_start_tls_s(
-        ldapHandle,
-        NULL,
-        NULL);
-    if (rc != LDAP_SUCCESS)
-    {
-        fprintf(stderr, "ldap_start_tls_s(): %s\n", ldap_err2string(rc));
-        ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-        return "Authentication failed";
-    }
+//     ////////////////////////////////////////////////////////////////////////////
+//     // start connection secure (initialize TLS)
+//     rc = ldap_start_tls_s(
+//         ldapHandle,
+//         NULL,
+//         NULL);
+//     if (rc != LDAP_SUCCESS)
+//     {
+//         fprintf(stderr, "ldap_start_tls_s(): %s\n", ldap_err2string(rc));
+//         ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+//         return "Authentication failed";
+//     }
 
-    ////////////////////////////////////////////////////////////////////////////
-    // bind credentials for authentication
-    BerValue bindCredentials;
-    bindCredentials.bv_val = (char *)ldapBindPassword;
-    bindCredentials.bv_len = strlen(ldapBindPassword);
-    BerValue *servercredp; // server's credentials
-    rc = ldap_sasl_bind_s(
-        ldapHandle,
-        ldapBindUser,
-        LDAP_SASL_SIMPLE,
-        &bindCredentials,
-        NULL,
-        NULL,
-        &servercredp);
-    if (rc != LDAP_SUCCESS)
-    {
-        fprintf(stderr, "LDAP bind error: %s\n", ldap_err2string(rc));
+//     ////////////////////////////////////////////////////////////////////////////
+//     // bind credentials for authentication
+//     BerValue bindCredentials;
+//     bindCredentials.bv_val = (char *)ldapBindPassword;
+//     bindCredentials.bv_len = strlen(ldapBindPassword);
+//     BerValue *servercredp; // server's credentials
+//     rc = ldap_sasl_bind_s(
+//         ldapHandle,
+//         ldapBindUser,
+//         LDAP_SASL_SIMPLE,
+//         &bindCredentials,
+//         NULL,
+//         NULL,
+//         &servercredp);
+//     if (rc != LDAP_SUCCESS)
+//     {
+//         fprintf(stderr, "LDAP bind error: %s\n", ldap_err2string(rc));
 
-        if (rc == LDAP_INVALID_CREDENTIALS)
-        {
-            std::cout << "Invalid credentials";
-        }
-        ldap_unbind_ext_s(ldapHandle, NULL, NULL);
-        return "Authentication failed";
-    }
+//         if (rc == LDAP_INVALID_CREDENTIALS)
+//         {
+//             std::cout << "Invalid credentials";
+//         }
+//         ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+//         return "Authentication failed";
+//     }
 
-    printf("Authentication successful.\n");
+//     printf("Authentication successful.\n");
 
-    ////////////////////////////////////////////////////////////////////////////
-    // unbind and close connection
-    ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+//     ////////////////////////////////////////////////////////////////////////////
+//     // unbind and close connection
+//     ldap_unbind_ext_s(ldapHandle, NULL, NULL);
 
-    return rawLdapUser;
-}
+//     return rawLdapUser;
+// }

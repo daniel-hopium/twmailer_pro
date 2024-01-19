@@ -277,7 +277,7 @@ void Client::handleSend()
 
         for (int i = 0; buffer[i] != '\0'; ++i)
         {
-            if (!islower(buffer[i]) || i >= 8)
+            if (/*!islower(buffer[i]) || */ i > 8)
             {
                 cerr << "Error: Receiver exceeds maximum length or is not only in all lowercase  (8 characters).\n";
                 cout << "Receiver (max. 8 chars): ";

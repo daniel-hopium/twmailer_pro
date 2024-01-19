@@ -5,7 +5,7 @@
 #include <ldap.h>
 #include <iostream>
 
-std::string authenticateUser( std::string rawLdapUser,  std::string rawLdapPassword)
+std::string LDAPAuthentication::authenticateUser( std::string rawLdapUser,  std::string rawLdapPassword)
 {
 
   ////////////////////////////////////////////////////////////////////////////
