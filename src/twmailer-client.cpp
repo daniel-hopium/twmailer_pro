@@ -21,6 +21,7 @@ private:
     int create_socket;
     char buffer[BUF];
     bool isQuit;
+    bool isValidCommand;
 
     void closeConnection();
 
@@ -51,7 +52,7 @@ int main(int argc, char **argv);
 
 // Client class implementation
 
-Client::Client() : create_socket(-1), isQuit(false) {}
+Client::Client() : create_socket(-1), isQuit(false), isValidCommand(true) {}
 
 Client::~Client()
 {
@@ -76,8 +77,15 @@ void Client::run(const char *serverIp, int serverPort)
         if (cin.getline(buffer, BUF))
         {
             processInput();
-            sendData();
-            receiveFeedback();
+            if (!isValidCommand)
+            {
+                isValidCommand = true;
+            }
+            else
+            {
+                sendData();
+                receiveFeedback();
+            }
         }
     } while (!isQuit);
 }
@@ -169,6 +177,11 @@ void Client::processInput()
     else if (strncmp(buffer, "DEL", 3) == 0)
     {
         handleDelete();
+    }
+    else
+    {
+        std::cout << "Invalid command. Please try again.\n";
+        isValidCommand = false;
     }
 }
 
