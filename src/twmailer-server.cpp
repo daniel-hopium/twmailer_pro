@@ -15,6 +15,10 @@
 #include <sstream>
 #include <vector>
 #include <dirent.h>
+#include "encryption.h"
+// #include "ldap_authentication.h"
+
+#include <ldap.h>
 
 #define BUF 1024
 
@@ -30,10 +34,15 @@ void signalHandler(int sig);
 void sendMessage(int current_socket, const std::string &message);
 
 // Command handlers
-void handleSend(int current_socket, std::istringstream &bufferStream);
-void handleList(int current_socket, std::istringstream &bufferStream);
-void handleRead(int current_socket, std::istringstream &bufferStream);
-void handleDelete(int current_socket, std::istringstream &bufferStream);
+std::string handleLogin(int current_socket, std::istringstream &bufferStream);
+void handleSend(int current_socket, std::istringstream &bufferStream, std::string username);
+void handleList(int current_socket, std::string username);
+void handleRead(int current_socket, std::istringstream &bufferStream, std::string username);
+void handleDelete(int current_socket, std::istringstream &bufferStream, std::string username);
+
+bool isAuthorized(std::string username, int current_socket);
+
+std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword);
 
 int main(int argc, char **argv)
 {
@@ -160,6 +169,7 @@ void *clientCommunication(void *data)
     char buffer[BUF];
     int size;
     int *current_socket = (int *)data;
+    std::string username = "";
 
     // SEND welcome message
     const char welcomeMessage[] = "Welcome to the twmailer!\r\nPlease enter your commands...\r\n";
@@ -207,21 +217,25 @@ void *clientCommunication(void *data)
         std::getline(bufferStream, command); // Consume the first line
 
         // Call the appropriate handler based on the command
+        if (command == "LOGIN")
+        {
+            username = handleLogin(*current_socket, bufferStream);
+        }
         if (command == "SEND")
         {
-            handleSend(*current_socket, bufferStream);
+            handleSend(*current_socket, bufferStream, username);
         }
         else if (command == "LIST")
         {
-            handleList(*current_socket, bufferStream);
+            handleList(*current_socket, username);
         }
         else if (command == "READ")
         {
-            handleRead(*current_socket, bufferStream);
+            handleRead(*current_socket, bufferStream, username);
         }
         else if (command == "DEL")
         {
-            handleDelete(*current_socket, bufferStream);
+            handleDelete(*current_socket, bufferStream, username);
         }
         else if (command == "QUIT")
         {
@@ -253,13 +267,49 @@ void *clientCommunication(void *data)
     return NULL;
 }
 
-void handleSend(int current_socket, std::istringstream &bufferStream)
+std::string handleLogin(int current_socket, std::istringstream &bufferStream)
 {
+    // Extract username and password
+    std::string username, password;
+
+    // Receive sender
+    std::getline(bufferStream, username);
+
+    // Receive receiver
+    std::getline(bufferStream, password);
+
+    Encryption encryption;
+
+    std::string returnString = authenticateUser(username, encryption.decrypt(password));
+
+    if (username == returnString)
+    {
+        std::cout << "LOGIN operation successfully completed for user " << username << std::endl;
+        // Respond to the client
+        const char okMessage[] = "OK";
+        sendMessage(current_socket, okMessage);
+        return username;
+    }
+
+    // Respond to the client
+    const char errorMessage[] = "ERR\n";
+    sendMessage(current_socket, errorMessage);
+
+    // Log the LOGIN operation
+    std::cout << "LOGIN operation unsuccessful for user " << username << ": " << returnString << std::endl;
+    return "";
+}
+
+void handleSend(int current_socket, std::istringstream &bufferStream, std::string username)
+{
+    if (!isAuthorized(username, current_socket))
+        return;
+
     // Extract sender, receiver, subject, and message
     std::string sender, receiver, subject, message;
 
-    // Receive sender
-    std::getline(bufferStream, sender);
+    // Get sender
+    sender = username;
 
     // Receive receiver
     std::getline(bufferStream, receiver);
@@ -305,11 +355,14 @@ void handleSend(int current_socket, std::istringstream &bufferStream)
     std::cout << "SEND operation completed for user " << sender << std::endl;
 }
 
-void handleList(int current_socket, std::istringstream &bufferStream)
+void handleList(int current_socket, std::string username)
 {
+    if (!isAuthorized(username, current_socket))
+        return;
+
     // Extract username
-    std::string username;
-    std::getline(bufferStream, username);
+    // std::string username;
+    // std::getline(bufferStream, username);
     std::cout << "LIST request for user: " << username << std::endl;
 
     // Get the list of messages for the user
@@ -378,11 +431,13 @@ void handleList(int current_socket, std::istringstream &bufferStream)
     std::cout << "LIST operation completed for user " << username << std::endl;
 }
 
-void handleRead(int current_socket, std::istringstream &bufferStream)
+void handleRead(int current_socket, std::istringstream &bufferStream, std::string username)
 {
-    // Extract username and message number
-    std::string username, messageNumberStr;
-    std::getline(bufferStream, username);
+    if (!isAuthorized(username, current_socket))
+        return;
+
+    // Extract message number
+    std::string messageNumberStr;
     std::getline(bufferStream, messageNumberStr);
 
     // Convert message number to integer
@@ -469,11 +524,10 @@ void handleRead(int current_socket, std::istringstream &bufferStream)
     std::cout << "READ request successful for user " << username << ", message number " << messageNumber << std::endl;
 }
 
-void handleDelete(int current_socket, std::istringstream &bufferStream)
+void handleDelete(int current_socket, std::istringstream &bufferStream, std::string username)
 {
-    // Extract username and message number
-    std::string username, messageNumberStr;
-    std::getline(bufferStream, username);
+    // Extract message number
+    std::string messageNumberStr;
     std::getline(bufferStream, messageNumberStr);
 
     // Convert message number to integer
@@ -595,4 +649,112 @@ void signalHandler(int sig)
     {
         exit(sig);
     }
+}
+
+bool isAuthorized(std::string username, int current_socket)
+{
+    if ((username.size() == 0))
+    {
+        const char errorMessage[] = "ERR\n";
+        if (send(current_socket, errorMessage, strlen(errorMessage), 0) == -1)
+        {
+            perror("send answer failed");
+        }
+        std::cerr << "Unauthorized" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword)
+{
+
+    ////////////////////////////////////////////////////////////////////////////
+    // LDAP config
+    // anonymous bind with user and pw empty
+    const char *ldapUri = "ldap://ldap.technikum-wien.at:389";
+    const int ldapVersion = LDAP_VERSION3;
+
+    char ldapBindUser[256];
+    char ldapBindPassword[256];
+    strcpy(ldapBindPassword, rawLdapPassword.c_str());
+
+    const char *rawLdapUserCStr = rawLdapUser.c_str();
+
+    sprintf(ldapBindUser, "uid=%s,ou=people,dc=technikum-wien,dc=at", rawLdapUserCStr);
+    printf("user based on environment variable ldapuser set to: %s\n", ldapBindUser);
+
+    // general
+    int rc = 0; // return code
+
+    ////////////////////////////////////////////////////////////////////////////
+    // setup LDAP connection
+    LDAP *ldapHandle;
+    rc = ldap_initialize(&ldapHandle, ldapUri);
+    if (rc != LDAP_SUCCESS)
+    {
+        fprintf(stderr, "ldap_init failed\n");
+        return "Authentication failed";
+    }
+    printf("connected to LDAP server %s\n", ldapUri);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // set version options
+    rc = ldap_set_option(
+        ldapHandle,
+        LDAP_OPT_PROTOCOL_VERSION, // OPTION
+        &ldapVersion);             // IN-Value
+    if (rc != LDAP_OPT_SUCCESS)
+    {
+        fprintf(stderr, "ldap_set_option(PROTOCOL_VERSION): %s\n", ldap_err2string(rc));
+        ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+        return "Authentication failed";
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // start connection secure (initialize TLS)
+    rc = ldap_start_tls_s(
+        ldapHandle,
+        NULL,
+        NULL);
+    if (rc != LDAP_SUCCESS)
+    {
+        fprintf(stderr, "ldap_start_tls_s(): %s\n", ldap_err2string(rc));
+        ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+        return "Authentication failed";
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // bind credentials for authentication
+    BerValue bindCredentials;
+    bindCredentials.bv_val = (char *)ldapBindPassword;
+    bindCredentials.bv_len = strlen(ldapBindPassword);
+    BerValue *servercredp; // server's credentials
+    rc = ldap_sasl_bind_s(
+        ldapHandle,
+        ldapBindUser,
+        LDAP_SASL_SIMPLE,
+        &bindCredentials,
+        NULL,
+        NULL,
+        &servercredp);
+    if (rc != LDAP_SUCCESS)
+    {
+        fprintf(stderr, "LDAP bind error: %s\n", ldap_err2string(rc));
+
+        if (rc == LDAP_INVALID_CREDENTIALS)
+        {
+            std::cout << "Invalid credentials";
+        }
+        ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+        return "Authentication failed";
+    }
+
+    printf("Authentication successful.\n");
+
+    ////////////////////////////////////////////////////////////////////////////
+    // unbind and close connection
+    ldap_unbind_ext_s(ldapHandle, NULL, NULL);
+
+    return rawLdapUser;
 }

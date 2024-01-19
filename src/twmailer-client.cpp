@@ -223,7 +223,7 @@ void Client::handleLogin()
 
         for (int i = 0; buffer[i] != '\0'; ++i)
         {
-            if (!islower(buffer[i]) || i >= 8 || ispunct(buffer[i]))
+            if (/*!islower(buffer[i]) ||*/ i >= 8 /*|| ispunct(buffer[i])*/)
             {
                 cerr << "Error: Username exceeds maximum length, is not only in all lowercase or contains special characters  (8 characters).\n";
                 cout << "Username (max. 8 lowercase chars): ";
@@ -245,9 +245,8 @@ void Client::handleLogin()
 
     //  Encrypt password
     Encryption encryption;
-    passwordString = encryption.encrypt(passwordString, "eiweck");
+    passwordString = encryption.encrypt(passwordString);
     fullMessage += passwordString;
-
     // Send the entire message to the server
     strncpy(buffer, fullMessage.c_str(), BUF);
 }
