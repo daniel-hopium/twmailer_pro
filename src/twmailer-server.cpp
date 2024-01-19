@@ -21,6 +21,7 @@
 #include <filesystem>
 #include "ldap_authentication.h"
 #include "blacklist.h"
+#include "twmailer-server.h"
 
 #include <ldap.h>
 
@@ -32,32 +33,6 @@ int new_socket = -1;
 std::string mailDir;
 Blacklist blacklist;
 
-void *clientCommunication(void *data, std::string ipAddress);
-void signalHandler(int sig);
-
-// Helper function to send messages to the client
-void sendMessage(int current_socket, const std::string &message);
-
-// Command handlers
-std::string handleLogin(int current_socket, std::istringstream &bufferStream, std::string ipAddress);
-void handleSend(int current_socket, std::istringstream &bufferStream, std::string username);
-void handleList(int current_socket, std::string username);
-void handleRead(int current_socket, std::istringstream &bufferStream, std::string username);
-void handleDelete(int current_socket, std::istringstream &bufferStream, std::string username);
-
-bool isAuthorized(std::string username, int current_socket);
-
-// bool isAuthorized(std::string username, int current_socket);
-// void writeAttemptToBlacklist(std::string username, std::string ipAddress);
-// int getLoginAttempts(std::string ipAddress);
-// void blacklistIp(std::string ipAddress);
-// std::string extractLastEntry(const std::string &filePath);
-// void clearBlacklist(std::string ipAddress);
-// bool isBlacklisted(std::string ipAddress);
-// bool hasTooManyAttempts(std::string ipAddress);
-
-// std::string authenticateUser(std::string rawLdapUser, std::string rawLdapPassword);
-
 int main(int argc, char **argv)
 {
     if (argc != 3)
@@ -65,6 +40,8 @@ int main(int argc, char **argv)
         std::cerr << "Usage: " << argv[0] << " <port> <mail-spool-directoryname>" << std::endl;
         return EXIT_FAILURE;
     }
+    Server server;
+
 
     int port = atoi(argv[1]);
     mailDir = argv[2];
@@ -144,7 +121,6 @@ int main(int argc, char **argv)
         perror("Error creating mail-spool directory");
         return EXIT_FAILURE;
     }
-    
 
     while (!abortRequested)
     {
@@ -169,7 +145,7 @@ int main(int argc, char **argv)
         printf("Client connected from %s:%d...\n",
                inet_ntoa(cliaddress.sin_addr),
                ntohs(cliaddress.sin_port));
-        clientCommunication(&new_socket, inet_ntoa(cliaddress.sin_addr)); // returnValue can be ignored
+        server.clientCommunication(&new_socket, inet_ntoa(cliaddress.sin_addr)); // returnValue can be ignored
         new_socket = -1;
     }
 
@@ -189,7 +165,7 @@ int main(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
-void *clientCommunication(void *data, std::string ipAddress)
+void* Server::clientCommunication(void *data, std::string ipAddress)
 {
     char buffer[BUF];
     int size;
@@ -293,7 +269,46 @@ void *clientCommunication(void *data, std::string ipAddress)
     return NULL;
 }
 
-std::string handleLogin(int current_socket, std::istringstream &bufferStream, std::string ipAddress)
+void signalHandler(int sig)
+{
+    if (sig == SIGINT)
+    {
+        printf("abort Requested... ");
+        abortRequested = 1;
+
+        if (new_socket != -1)
+        {
+            if (shutdown(new_socket, SHUT_RDWR) == -1)
+            {
+                perror("shutdown new_socket");
+            }
+            if (close(new_socket) == -1)
+            {
+                perror("close new_socket");
+            }
+            new_socket = -1;
+        }
+
+        if (create_socket != -1)
+        {
+            if (shutdown(create_socket, SHUT_RDWR) == -1)
+            {
+                perror("shutdown create_socket");
+            }
+            if (close(create_socket) == -1)
+            {
+                perror("close create_socket");
+            }
+            create_socket = -1;
+        }
+    }
+    else
+    {
+        exit(sig);
+    }
+}
+
+std::string Server::handleLogin(int current_socket, std::istringstream &bufferStream, std::string ipAddress)
 {
     if (blacklist.isBlacklisted(ipAddress))
     {
@@ -348,7 +363,7 @@ std::string handleLogin(int current_socket, std::istringstream &bufferStream, st
     return "";
 }
 
-void handleSend(int current_socket, std::istringstream &bufferStream, std::string username)
+void Server::handleSend(int current_socket, std::istringstream &bufferStream, std::string username)
 {
     if (!isAuthorized(username, current_socket))
         return;
@@ -402,7 +417,7 @@ void handleSend(int current_socket, std::istringstream &bufferStream, std::strin
     std::cout << "SEND operation completed for user " << sender << std::endl;
 }
 
-void handleList(int current_socket, std::string username)
+void Server::handleList(int current_socket, std::string username)
 {
     if (!isAuthorized(username, current_socket))
         return;
@@ -478,7 +493,7 @@ void handleList(int current_socket, std::string username)
     std::cout << "LIST operation completed for user " << username << std::endl;
 }
 
-void handleRead(int current_socket, std::istringstream &bufferStream, std::string username)
+void Server::handleRead(int current_socket, std::istringstream &bufferStream, std::string username)
 {
     if (!isAuthorized(username, current_socket))
         return;
@@ -571,7 +586,7 @@ void handleRead(int current_socket, std::istringstream &bufferStream, std::strin
     std::cout << "READ request successful for user " << username << ", message number " << messageNumber << std::endl;
 }
 
-void handleDelete(int current_socket, std::istringstream &bufferStream, std::string username)
+void Server::handleDelete(int current_socket, std::istringstream &bufferStream, std::string username)
 {
     if (!isAuthorized(username, current_socket))
         return;
@@ -654,7 +669,7 @@ void handleDelete(int current_socket, std::istringstream &bufferStream, std::str
     }
 }
 
-void sendMessage(int current_socket, const std::string &message)
+void Server::sendMessage(int current_socket, const std::string &message)
 {
     if (send(current_socket, message.c_str(), message.length(), 0) == -1)
     {
@@ -662,47 +677,10 @@ void sendMessage(int current_socket, const std::string &message)
     }
 }
 
-void signalHandler(int sig)
+
+bool Server::isAuthorized(std::string username, int current_socket)
 {
-    if (sig == SIGINT)
-    {
-        printf("abort Requested... ");
-        abortRequested = 1;
 
-        if (new_socket != -1)
-        {
-            if (shutdown(new_socket, SHUT_RDWR) == -1)
-            {
-                perror("shutdown new_socket");
-            }
-            if (close(new_socket) == -1)
-            {
-                perror("close new_socket");
-            }
-            new_socket = -1;
-        }
-
-        if (create_socket != -1)
-        {
-            if (shutdown(create_socket, SHUT_RDWR) == -1)
-            {
-                perror("shutdown create_socket");
-            }
-            if (close(create_socket) == -1)
-            {
-                perror("close create_socket");
-            }
-            create_socket = -1;
-        }
-    }
-    else
-    {
-        exit(sig);
-    }
-}
-
-bool isAuthorized(std::string username, int current_socket)
-{
     if ((username.size() == 0))
     {
         const char errorMessage[] = "ERR\n";
@@ -715,3 +693,4 @@ bool isAuthorized(std::string username, int current_socket)
     }
     return true;
 }
+
