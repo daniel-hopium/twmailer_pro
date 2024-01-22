@@ -137,6 +137,7 @@ void Blacklist::clearBlacklist(std::string ipAddress)
     perror("Error clearing blacklist");
   }
 }
+
 void Blacklist::printLoginAttempts(std::string ipAddress)
 {
   int loginAttempts = getLoginAttempts(ipAddress);
